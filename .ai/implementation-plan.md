@@ -1,6 +1,21 @@
 # Implementation Plan
 
-This document describes the phased implementation of the Astral API. Each numbered section corresponds to a logical step in development (i.e., a milestone). Tasks within each section are listed as checkboxes with bulleted requirements that detail what needs to be achieved. The agent should update this document after completing each task, run tests/builds, and commit changes to the repository.
+This document describes the phased implementation of the Astral API. Each numbered section corresponds to a logical step in development (i.e., a milestone). Tasks within each section are listed as checkboxes with bulleted requirements that detail what needs to be achieved.
+
+## Task Completion Checklist
+
+For each task, follow these steps in order:
+1. Implement the required changes
+2. Run tests if applicable
+3. Fix any linting/type checking issues
+4. Update this implementation plan to mark the task as complete
+5. Create a commit with a descriptive message following conventional commits format:
+   - feat: New features
+   - fix: Bug fixes
+   - refactor: Code changes that neither fix bugs nor add features
+   - test: Adding or modifying tests
+   - docs: Documentation only changes
+   - chore: Changes to the build process, tools, etc.
 
 ---
 
@@ -25,10 +40,10 @@ This document describes the phased implementation of the Astral API. Each number
 - [x] **Task 2.1: Define Database Models**
   - • Create Pydantic and SQLAlchemy models for Users, Addresses, Location Proofs (Attestations), and Chains based on the Schema Design Document.
   - • Ensure relationships (foreign keys) are defined correctly.
-- [x] **Task 2.2: Set Up Database Migrations**
+- [ ] **Task 2.2: Set Up Database Migrations**
   - • Initialize Alembic for database migrations.
   - • Create an initial migration script to set up the database schema.
-- [x] **Task 2.3: Integration Testing for Database**
+- [ ] **Task 2.3: Integration Testing for Database**
   - • Write integration tests for database operations (CRUD, relationships, etc.).
   - • Ensure tests run successfully in the CI environment.
 
