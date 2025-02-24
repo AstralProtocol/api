@@ -4,6 +4,8 @@ This document describes the phased implementation of the Astral API. Each number
 
 ## Task Completion Checklist
 
+⚠️ IMPORTANT: Every task MUST be committed after completion! ⚠️
+
 For each task, follow these steps in order:
 1. Implement the required changes
 2. Run tests if applicable
@@ -16,6 +18,8 @@ For each task, follow these steps in order:
    - test: Adding or modifying tests
    - docs: Documentation only changes
    - chore: Changes to the build process, tools, etc.
+
+DO NOT move on to the next task until you have committed the current one!
 
 ---
 
@@ -40,7 +44,7 @@ For each task, follow these steps in order:
 - [x] **Task 2.1: Define Database Models**
   - • Create Pydantic and SQLAlchemy models for Users, Addresses, Location Proofs (Attestations), and Chains based on the Schema Design Document.
   - • Ensure relationships (foreign keys) are defined correctly.
-- [ ] **Task 2.2: Set Up Database Migrations**
+- [x] **Task 2.2: Set Up Database Migrations**
   - • Initialize Alembic for database migrations.
   - • Create an initial migration script to set up the database schema.
 - [ ] **Task 2.3: Integration Testing for Database**
