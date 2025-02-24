@@ -1,0 +1,90 @@
+---
+description: 
+globs: 
+---
+# Astral API Rules and Workflow Guidelines
+
+This document sets the guidelines for code style, best practices, and our task workflow. Every task defined in `.ai/implementation-plan.md` must be implemented, tested, and committed separately. Each commit should add the prior commit's hash into the corresponding task section. 
+
+---
+
+## Python Guidelines
+
+- **Code Structure & Style:**
+  - Write clean, modular Python code following [PEP 8](https://www.python.org/dev/peps/pep-0008/).
+  - Use functional components when possible.  
+  - Write well-commented code with comprehensive docstrings.
+  - Enforce static type-checking using mypy.
+
+- **Testing:**
+  - Adopt Test-Driven Development (TDD). Each subtask must have unit tests with at least 80% coverage.
+  - Run tests locally (using pytest) and ensure they pass before committing changes.
+
+- **Documentation:**
+  - Update docstrings and inline comments to explain complex logic.
+  - Maintain a clear project README and in-code documentation.
+
+@file .ai/implementation-plan.md
+
+---
+
+## SQL Guidelines
+
+- **Schema Design:**
+  - Follow best practices in designing and documenting database schemas.
+  - Use migrations (e.g., with Alembic) to manage schema changes.
+  - Write clear, maintainable SQL or SQLAlchemy models, and document key decisions in the schema design document.
+
+- **Testing:**
+  - Write integration tests for all CRUD operations and relationships.
+  - Ensure tests are part of the CI/CD pipeline.
+
+@file SCHEMA_DESIGN.md
+
+---
+
+## Style and Best Practices
+
+- **Code Quality:**
+  - Follow the team's style guide for Python and SQL.
+  - Use automated tools: Black for formatting, isort for import sorting, Flake8 for linting, and mypy for type checking.
+  - Commit often and with clear, descriptive messages.
+
+- **Documentation:**
+  - Keep documentation updated in the repository, including README, API docs (via MkDocs), and in-code comments.
+  - Ensure all new features or changes are documented.
+
+---
+
+## Task Workflow and Commit Guidelines
+
+- **Task Breakdown:**
+  - Every numbered section in `.ai/implementation-plan.md` represents a logical development step (e.g., Task 1.1, 1.2, etc.).
+  - Each checkbox within a task must be implemented, tested, and committed as a separate, self-contained change.
+  
+- **Commit Protocol:**
+  - **For each subtask:**
+    - Implement the subtask.
+    - Run all associated tests (unit, integration, etc.) and ensure they pass.
+    - Update the `.ai/implementation-plan.md` document to check off the completed subtask.
+    - Commit the changes with a clear commit message.
+    - **Crucial:** When you complete a task, also add in the prior commit hash to the prior task. Obviously we can't include the hash int he commit, but we want references to commits in the final implementation-plan.md doc.
+  
+- **Example Workflow:**
+  1. **Task 1.1:** "Repository Initialization"  
+     - [ ] Create repository structure and initial files.  
+       *Commit message:* "Task 1.1 complete – initial repository structure"
+       *Commit:* <hash>
+  2. **Task 1.2:** "Environment Setup"  
+     - [ ] Configure Poetry and set up dependencies.  
+       *Commit message:* "Task 1.2 complete – Python environment and dependencies configured"
+       *Commit:* <hash>
+  3. **Task 1.3:** "CI/CD Pipeline Setup"  
+     - [ ] Create GitHub Actions workflow for testing and linting.  
+       *Commit message:* "Task 1.3 complete – CI/CD pipeline initialized [commit: <TODO>]"
+  
+- **Ongoing Updates:**
+  - Continuously update the implementation plan as subtasks are completed.
+  - If further clarification is needed, the agent should ask for details before proceeding.
+
+Let me know if further adjustments are needed.
