@@ -19,6 +19,7 @@ geoalchemy2 = "^0.14.3"
 web3 = "^6.14.0"
 python-jose = {extras = ["cryptography"], version = "^3.3.0"}
 ariadne = "^0.21.0"
+shapely = "^2.0.7"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.4"

@@ -47,7 +47,7 @@ DO NOT move on to the next task until you have committed the current one!
 - [x] **Task 2.2: Set Up Database Migrations**
   - • Initialize Alembic for database migrations.
   - • Create an initial migration script to set up the database schema.
-- [ ] **Task 2.3: Integration Testing for Database**
+- [x] **Task 2.3: Integration Testing for Database**
   - • Write integration tests for database operations (CRUD, relationships, etc.).
   - • Ensure tests run successfully in the CI environment.
 

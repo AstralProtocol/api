@@ -15,9 +15,13 @@ if TYPE_CHECKING:
 class Chain(Base):
     """Chain model for storing blockchain network metadata."""
 
-    # Override id to use chain_id as primary key
-    __mapper_args__ = {"primary_key": ["chain_id"]}
-    id: Mapped[int] = None  # type: ignore
+    # Use chain_id as primary key
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
+        autoincrement=True,
+        index=True,
+        doc="Unique identifier for the chain record",
+    )
 
     # Chain-specific columns
     chain_id: Mapped[int] = mapped_column(

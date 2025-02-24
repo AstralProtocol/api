@@ -3,6 +3,7 @@
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models import Address, Chain, LocationProof, User
 
@@ -102,14 +103,20 @@ async def test_address_with_user_relationship(session: AsyncSession) -> None:
     await session.commit()
 
     # Test relationship from user to address
-    user_stmt = select(User).where(User.id == user.id)
+    user_stmt = (
+        select(User).options(selectinload(User.addresses)).where(User.id == user.id)
+    )
     user_result = await session.execute(user_stmt)
     user_from_db = user_result.scalar_one()
     assert len(user_from_db.addresses) == 1
     assert user_from_db.addresses[0].address == address.address
 
     # Test relationship from address to user
-    address_stmt = select(Address).where(Address.id == address.id)
+    address_stmt = (
+        select(Address)
+        .options(selectinload(Address.user))
+        .where(Address.id == address.id)
+    )
     address_result = await session.execute(address_stmt)
     address_from_db = address_result.scalar_one()
     assert address_from_db.user.id == user.id
@@ -130,7 +137,7 @@ async def test_location_proof_relationships(session: AsyncSession) -> None:
     session.add(user)
     await session.commit()
 
-    # Create addresses
+    # Create addresses with different addresses
     attester = Address(
         user=user,
         address="0x742d35Cc6634C0532925a3b844Bc454e4438f44e",
@@ -183,7 +190,15 @@ async def test_location_proof_relationships(session: AsyncSession) -> None:
     await session.commit()
 
     # Test relationships
-    stmt = select(LocationProof).where(LocationProof.attestation_uid == "0x123")
+    stmt = (
+        select(LocationProof)
+        .options(
+            selectinload(LocationProof.chain),
+            selectinload(LocationProof.attester),
+            selectinload(LocationProof.recipient),
+        )
+        .where(LocationProof.attestation_uid == "0x123")
+    )
     result = await session.execute(stmt)
     proof_from_db = result.scalar_one()
 
@@ -192,9 +207,32 @@ async def test_location_proof_relationships(session: AsyncSession) -> None:
     assert proof_from_db.recipient.address == recipient.address
 
     # Test reverse relationships
-    assert len(chain.location_proofs) == 1
-    assert len(attester.attested_proofs) == 1
-    assert len(recipient.received_proofs) == 1
+    chain_stmt = (
+        select(Chain)
+        .options(selectinload(Chain.location_proofs))
+        .where(Chain.id == chain.id)
+    )
+    chain_result = await session.execute(chain_stmt)
+    chain_from_db = chain_result.scalar_one()
+    assert len(chain_from_db.location_proofs) == 1
+
+    attester_stmt = (
+        select(Address)
+        .options(selectinload(Address.attested_proofs))
+        .where(Address.id == attester.id)
+    )
+    attester_result = await session.execute(attester_stmt)
+    attester_from_db = attester_result.scalar_one()
+    assert len(attester_from_db.attested_proofs) == 1
+
+    recipient_stmt = (
+        select(Address)
+        .options(selectinload(Address.received_proofs))
+        .where(Address.id == recipient.id)
+    )
+    recipient_result = await session.execute(recipient_stmt)
+    recipient_from_db = recipient_result.scalar_one()
+    assert len(recipient_from_db.received_proofs) == 1
 
     # Test cascade delete
     await session.delete(chain)
