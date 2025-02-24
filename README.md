@@ -79,6 +79,20 @@ poetry run pre-commit install
 poetry run pre-commit run --all-files
 ```
 
+### Continuous Integration
+
+We use GitHub Actions for continuous integration. The CI pipeline:
+- Runs on every push and pull request to the main branch
+- Sets up Python 3.11 and Poetry
+- Installs project dependencies
+- Runs pre-commit hooks (black, isort, flake8, mypy)
+- Executes test suite with pytest
+- Reports test coverage to Codecov
+
+Status badges:
+[![CI](https://github.com/AstralProtocol/api/actions/workflows/ci.yml/badge.svg)](https://github.com/AstralProtocol/api/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/AstralProtocol/api/branch/main/graph/badge.svg)](https://codecov.io/gh/AstralProtocol/api)
+
 ## Documentation
 
 - [Project Requirements Document](docs/prd.md)
