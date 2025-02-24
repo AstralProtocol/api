@@ -4,17 +4,17 @@ This document provides step-by-step instructions for setting up the Python envir
 
 ## 1. Install Poetry
 
-- **Linux/macOS:**  
+- **Linux/macOS:**
   Open a terminal and run:
   ```bash
   curl -sSL https://install.python-poetry.org | python3 -
   ```
-- **Windows:**  
+- **Windows:**
   Use PowerShell (run as Administrator) and execute:
   ```powershell
   (Invoke-WebRequest -Uri https://install.python-poetry.org -UseBasicParsing).Content | python -
   ```
-- **Verify Installation:**  
+- **Verify Installation:**
   Check that Poetry is installed by running:
   ```bash
   poetry --version
@@ -22,14 +22,14 @@ This document provides step-by-step instructions for setting up the Python envir
 
 ## 2. Project Setup
 
-- **Clone the Repository:**  
+- **Clone the Repository:**
   If you haven’t already, clone the project repository:
   ```bash
   git clone https://your.repo.url.git
   cd your-project-directory
   ```
 
-- **Initialize the Project with Poetry:**  
+- **Initialize the Project with Poetry:**
   If the project is already configured with a `pyproject.toml`, simply run:
   ```bash
   poetry install
@@ -40,12 +40,12 @@ This document provides step-by-step instructions for setting up the Python envir
 
 ## 3. Managing Dependencies
 
-- **Adding a Dependency:**  
+- **Adding a Dependency:**
   To add a new package to your project, use:
   ```bash
   poetry add <package-name>
   ```
-- **Adding a Dev Dependency:**  
+- **Adding a Dev Dependency:**
   For development-only dependencies (e.g., pytest, Black, isort, Flake8, mypy), use:
   ```bash
   poetry add --dev <package-name>
@@ -53,12 +53,12 @@ This document provides step-by-step instructions for setting up the Python envir
 
 ## 4. Activating the Virtual Environment
 
-- **Shell Access:**  
+- **Shell Access:**
   To activate the virtual environment managed by Poetry, run:
   ```bash
   poetry shell
   ```
-- **Running Commands Within the Environment:**  
+- **Running Commands Within the Environment:**
   Alternatively, prefix commands with `poetry run`. For example:
   ```bash
   poetry run python your_script.py
@@ -67,12 +67,12 @@ This document provides step-by-step instructions for setting up the Python envir
 
 ## 5. Pre-commit Hooks & Code Quality
 
-- **Set Up Pre-commit Hooks:**  
+- **Set Up Pre-commit Hooks:**
   The repository includes a `.pre-commit-config.yaml` file. Install pre-commit hooks by running:
   ```bash
   poetry run pre-commit install
   ```
-- **Running Pre-commit Checks Manually:**  
+- **Running Pre-commit Checks Manually:**
   To run all pre-commit hooks against all files:
   ```bash
   poetry run pre-commit run --all-files
@@ -80,7 +80,7 @@ This document provides step-by-step instructions for setting up the Python envir
 
 ## 6. Running Tests
 
-- **Using pytest:**  
+- **Using pytest:**
   Run tests with:
   ```bash
   poetry run pytest
@@ -88,14 +88,14 @@ This document provides step-by-step instructions for setting up the Python envir
 
 ## 7. Additional Tools
 
-- **Formatting and Linting:**  
+- **Formatting and Linting:**
   The project uses Black for formatting, isort for import sorting, and Flake8 for linting. These tools are configured in the pre-commit hooks and can also be run manually:
   ```bash
   poetry run black .
   poetry run isort .
   poetry run flake8
   ```
-- **Static Type Checking:**  
+- **Static Type Checking:**
   To run mypy for static type checking:
   ```bash
   poetry run mypy .
@@ -103,4 +103,4 @@ This document provides step-by-step instructions for setting up the Python envir
 
 ---
 
-By following these instructions, you will set up a consistent Python development environment using Poetry. This ensures that all developers and CI/CD pipelines use the same dependencies and configurations, reducing integration issues and simplifying maintenance. 
+By following these instructions, you will set up a consistent Python development environment using Poetry. This ensures that all developers and CI/CD pipelines use the same dependencies and configurations, reducing integration issues and simplifying maintenance.

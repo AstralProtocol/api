@@ -31,10 +31,10 @@ Develop a world-class web API for decentralized geospatial data artifacts that:
      - Additional endpoints as needed to meet compliance.
 
 2. **Attestation as Location Proof**
-   - **Core Concept:**  
-     - Each EAS attestation serves as a location proof.  
+   - **Core Concept:**
+     - Each EAS attestation serves as a location proof.
      - Our API will store the complete attestation data—including geospatial attributes—in a PostGIS-enabled PostgreSQL database.
-   - **Data Storage & Status Tracking:**  
+   - **Data Storage & Status Tracking:**
      - Each record will include:
        - **Geospatial Data:** Stored using PostGIS geometry types.
        - **Metadata:** Timestamp, user identity (from Web3 sign-in), and protocol version.
@@ -43,9 +43,9 @@ Develop a world-class web API for decentralized geospatial data artifacts that:
      - The API will rapidly reflect new attestations as they are detected by monitoring EAS events.
 
 3. **Authentication & Authorization**
-   - **Public Access:**  
+   - **Public Access:**
      - Endpoints remain accessible without authentication. However, some entries are private and require authentication. Generally, attestations registered onchain and on IPFS are public, offchain are private.
-   - **Private Access & Role-Based Control:**  
+   - **Private Access & Role-Based Control:**
      - Sensitive operations (submitting or accessing private location proofs) require secure authentication.
      - Users sign in using Web3 (e.g., “Sign in with Ethereum”), with support for role-based permissions to differentiate access levels.
 
@@ -56,50 +56,50 @@ Develop a world-class web API for decentralized geospatial data artifacts that:
      - Additional spatial filters as needed for OGC API – Features compliance.
 
 5. **CI/CD & Deployment**
-   - **CI/CD Pipeline:**  
+   - **CI/CD Pipeline:**
      - Use GitHub Actions (or equivalent) to run automated tests with pytest, enforce type-checking with mypy, and deploy automatically upon merging to the production branch.
-   - **Environments:**  
+   - **Environments:**
      - Separate development, staging, and production environments.
      - Optionally, ephemeral preview environments for pull requests (depending on cloud provider capabilities).
 
 6. **Containerization & Cloud Deployment**
-   - **Containerization:**  
+   - **Containerization:**
      - Package the application using Docker.
-   - **Cloud Infrastructure:**  
+   - **Cloud Infrastructure:**
      - Deploy using a cloud provider that supports managed PostGIS instances (e.g., AWS RDS, DigitalOcean Managed Databases) and container orchestration (e.g., AWS ECS/Fargate, Azure Container Instances).
 
 
 7. GraphQL Proxy Service
-- **Purpose:**  
+- **Purpose:**
   - Provide a GraphQL endpoint that acts as a proxy to our underlying REST API and business logic, enabling flexible queries and mutations.
-- **Implementation:**  
+- **Implementation:**
   - Use a Python GraphQL framework (e.g., Ariadne or Graphene) to define the GraphQL schema, resolvers, and mutations corresponding to our core API functionality.
   - The resolvers will internally invoke the same service layer as the REST endpoints, ensuring consistency and reusability.
-- **Benefits:**  
+- **Benefits:**
   - Clients can request precisely the data they need.
   - It offers an alternative interface for developers familiar with GraphQL without duplicating business logic.
-- **Integration:**  
+- **Integration:**
   - This service will be fully integrated with the CI/CD pipeline and tested alongside the REST API endpoints.
 
 
 ### 2.2. Non-Functional Requirements
 
-- **Performance:**  
+- **Performance:**
   - Ensure reasonably low latency in propagating attestations to the API, so new attestations are visible almost immediately with accurate status.
-  
-- **Scalability:**  
+
+- **Scalability:**
   - Designed for low-to-moderate loads initially, with a flexible architecture that can scale following industry-standard practices.
 
-- **Security:**  
+- **Security:**
   - Secure API endpoints with robust Web3 authentication and role-based access.
   - Manage secrets and configurations securely using environment variables or a dedicated secrets management service.
 
-- **Code Quality & Testing:**  
+- **Code Quality & Testing:**
   - Implement comprehensive unit and integration tests using pytest.
   - Enforce static type-checking with mypy.
   - Use pre-commit hooks (Black, isort, Flake8) to maintain high code quality.
 
-- **Maintainability:**  
+- **Maintainability:**
   - Maintain a clean project structure with thorough documentation to facilitate future development and enhancements.
 
 ---
@@ -108,19 +108,19 @@ Develop a world-class web API for decentralized geospatial data artifacts that:
 
 ### 3.1. User Stories
 
-- **As a Developer:**  
+- **As a Developer:**
   - I want a CI/CD pipeline that automatically tests, type-checks, and deploys my changes so that I can focus on development without manual overhead.
   - I need clear, maintainable, well-documented code with robust testing and quality standards.
 
-- **As a Public User:**  
+- **As a Public User:**
   - I can query location proofs (EAS attestations) via standardized OGC API endpoints without requiring authentication.
 
-- **As a Registered User (via Web3):**  
+- **As a Registered User (via Web3):**
   - I can sign in using my Ethereum wallet.
   - I can submit a location proof, where the EAS attestation is stored along with geospatial and on-chain metadata, and immediately see it appear in the API with its status (e.g., pending, validated).
   - I can access my private location proofs securely with role-based permissions.
 
-- **As an Admin:**  
+- **As an Admin:**
   - I can manage user roles and oversee the performance and integrity of the API, ensuring that new attestations are accurately tracked and reflected in the system.
 
 ### 3.2. Use Cases
@@ -141,11 +141,11 @@ Develop a world-class web API for decentralized geospatial data artifacts that:
 
 4. **Use Case: Querying via GraphQL**
     - A client sends a GraphQL query to the proxy endpoint requesting location proof data.
-    - **Flow:**  
+    - **Flow:**
     - The GraphQL layer receives the query.
     - Resolvers map the GraphQL query to the underlying REST service or directly to the business logic.
     - The response is returned in GraphQL format, offering clients flexible data selection.
-    - **Outcome:**  
+    - **Outcome:**
     - Users can interact with the API using either REST or GraphQL based on their preference.
 
 ---
@@ -155,7 +155,7 @@ Develop a world-class web API for decentralized geospatial data artifacts that:
 - **Constraints:**
   - The API must meet basic OGC API – Features compliance with minimal endpoints initially.
   - The full attestation data, including on-chain metadata and status, will be stored locally for fast querying and indexing.
-  
+
 - **Assumptions:**
   - The initial load is low to medium; advanced scalability measures can be introduced later if needed.
   - Users will interact with the API via standard HTTP methods.
@@ -165,38 +165,38 @@ Develop a world-class web API for decentralized geospatial data artifacts that:
 
 ## 5. Risks & Mitigations
 
-- **Integration Risks:**  
-  - **Risk:** Challenges integrating with EAS or discrepancies between on-chain data and local storage.  
+- **Integration Risks:**
+  - **Risk:** Challenges integrating with EAS or discrepancies between on-chain data and local storage.
   - **Mitigation:** Start with a mock integration during early development and validate with EAS test environments.
 
-- **Security Risks:**  
-  - **Risk:** Vulnerabilities in the Web3 authentication flow.  
+- **Security Risks:**
+  - **Risk:** Vulnerabilities in the Web3 authentication flow.
   - **Mitigation:** Utilize well-established libraries and perform regular security audits.
 
-- **Deployment Risks:**  
-  - **Risk:** CI/CD pipeline failures that could disrupt production.  
+- **Deployment Risks:**
+  - **Risk:** CI/CD pipeline failures that could disrupt production.
   - **Mitigation:** Implement robust testing (pytest), enforce mypy type-checking, and design a reliable rollback strategy.
 
 ---
 
 ## 6. Success Metrics
 
-- **Rapid Availability:**  
+- **Rapid Availability:**
   - New attestations appear in the API almost immediately upon detection, with accurate status updates reflecting their processing stage.
-  
-- **Compliance:**  
+
+- **Compliance:**
   - The API passes OGC API – Features compliance tests.
-  
-- **Performance:**  
+
+- **Performance:**
   - The API responds to spatial queries with acceptable latency.
-  
-- **Security:**  
+
+- **Security:**
   - Regular security audits reveal no critical vulnerabilities.
-  
-- **Developer Experience:**  
+
+- **Developer Experience:**
   - CI/CD pipeline executes reliably, with automated tests and deployments triggered on production merges.
 
-- **User Adoption:**  
+- **User Adoption:**
   - Users can seamlessly authenticate via Web3, submit location proofs, and query both public and private attestations as expected.
 
 ---

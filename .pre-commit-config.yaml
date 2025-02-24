@@ -12,7 +12,7 @@ repos:
     rev: 24.1.1
     hooks:
       - id: black
-        language_version: python3.11
+        language_version: python3
 
   - repo: https://github.com/pycqa/isort
     rev: 5.13.2
@@ -32,6 +32,7 @@ repos:
     hooks:
       - id: mypy
         additional_dependencies:
-          - types-all
           - pydantic
-          - sqlalchemy[mypy] 
+          - sqlalchemy[mypy]
+          - types-requests
+          - types-python-jose

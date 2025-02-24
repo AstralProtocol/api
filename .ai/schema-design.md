@@ -18,7 +18,7 @@ This document describes the proposed database schema for storing EAS attestation
 | **created_at** | Timestamp | Timestamp for when the user was created.                        |
 | **updated_at** | Timestamp | Timestamp for when the user was last updated.                   |
 
-**Purpose:**  
+**Purpose:**
 Stores user-level information independent of blockchain addresses.
 
 ---
@@ -36,7 +36,7 @@ Stores user-level information independent of blockchain addresses.
 | **created_at**  | Timestamp    | Timestamp for when the address record was created.                                                |
 | **updated_at**  | Timestamp    | Timestamp for when the address record was last updated.                                           |
 
-**Purpose:**  
+**Purpose:**
 Holds blockchain addresses for each user. A single user may have multiple addresses. The **is_verified** flag, together with the stored **digital_signature**, enables re-verification of address ownership—critical for managing private proofs.
 
 ---
@@ -75,7 +75,7 @@ Holds blockchain addresses for each user. A single user may have multiple addres
 | **recipient_id** | Integer (FK)   | References the Addresses table for the recipient’s address.                                                                        |
 | **extra**        | JSONB          | Additional extensible data.                                                                                                          |
 
-**Purpose:**  
+**Purpose:**
 Stores full attestation data (as location proofs) with default EAS attributes, geospatial data, and on-chain metadata. It includes foreign key references to the **Chains** and **Addresses** tables for additional context.
 
 ---
@@ -97,31 +97,31 @@ Stores full attestation data (as location proofs) with default EAS attributes, g
 | **icon**       | Text           | Identifier for an icon (useful for UI display).                                                                                  |
 | **explorers**  | JSONB          | Array of blockchain explorer objects (e.g., [{ "name": "etherscan", "url": "https://etherscan.io", "icon": "etherscan", "standard": "EIP3091" }]). |
 
-**Purpose:**  
+**Purpose:**
 Holds comprehensive metadata for each blockchain network. This supports linking to block explorers and supplying network-specific details in the API.
 
 ---
 
 ## 3. Design Considerations
 
-- **Geospatial Flexibility:**  
+- **Geospatial Flexibility:**
   The **location** field uses a flexible PostGIS GEOMETRY type to accommodate various spatial forms such as POINT, LINESTRING, POLYGON, and bounding boxes. The SRID must be aligned with the provided srs value.
 
-- **Extensible Fields:**  
+- **Extensible Fields:**
   The **recipe_payload** and **extra** fields are stored as JSONB to handle dynamic and evolving data structures without frequent schema changes.
 
-- **Default Attestation Attributes:**  
+- **Default Attestation Attributes:**
   All standard EAS attestation fields are included (uid, schema, event_timestamp, expiration_time, revoked, revocation_time, ref_uid, revocable) to fully capture the attestation data.
 
-- **User & Address Separation:**  
+- **User & Address Separation:**
   Users are managed in a separate table, and each user can have multiple addresses stored in the Addresses table. The **is_verified** flag in Addresses ensures that ownership has been proven via a valid signature, which is crucial for handling private proofs.
 
-- **Foreign Key Relationships:**  
+- **Foreign Key Relationships:**
   - **attester_id** and **recipient_id** in Location Proofs reference the Addresses table.
   - **chain_id** in Location Proofs references the Chains table.
   - **user_id** in Addresses references the Users table.
 
-- **Chain Metadata:**  
+- **Chain Metadata:**
   The Chains table is designed to store rich network metadata, supporting features like RPC endpoints, native currency details, and explorer links.
 
 ---
@@ -136,4 +136,3 @@ This schema design document outlines a comprehensive and modular design for stor
 - **Chains:** Detailed blockchain network metadata to support API features such as linking to block explorers.
 
 This document should provide a clear blueprint for a database engineer to implement the required schema while ensuring the system is flexible, extensible, and adheres to industry best practices.
-

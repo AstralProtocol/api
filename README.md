@@ -88,4 +88,4 @@ poetry run pre-commit run --all-files
 
 ## License
 
-[License details to be added] 
+[License details to be added]

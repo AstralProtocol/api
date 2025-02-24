@@ -1,3 +1,7 @@
+---
+description:
+globs:
+---
 # Implementation Plan
 
 This document describes the phased implementation of the Astral API. Each numbered section corresponds to a logical step in development (i.e., a milestone). Tasks within each section are listed as checkboxes with bulleted requirements that detail what needs to be achieved. The agent should update this document after completing each task, run tests/builds, and commit changes to the repository.
@@ -6,9 +10,9 @@ This document describes the phased implementation of the Astral API. Each number
 
 ## 1. Initial Project Setup & Repository Bootstrap
 
-- [x] **Task 1.1: Repository Initialization**
+- [ ] **Task 1.1: Repository Initialization**
   - • Create a new Git repository with a clear commit history.
-  - • Set up the basic project structure (based on .cursor/rules/project-structure.md) (e.g., app/, tests/, docs/, config/, etc.) following the established directory design.
+  - • Set up the basic project structure (.cursor/rules/project-structure.md) (e.g., app/, tests/, docs/, config/, etc.) following the established directory design.
   - • Add standard configuration files (.gitignore, README.md, etc.).
 - [ ] **Task 1.2: Environment & Dependency Setup**
   - • Configure the Python environment (.cursor/rules/python-environment.md) using Python 3.11.

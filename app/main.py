@@ -1,6 +1,5 @@
-"""
-Main application module for Astral API
-"""
+"""Main application module for Astral API."""
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -19,7 +18,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.get("/health")
-async def health_check():
-    """Basic health check endpoint"""
-    return {"status": "healthy"} 
+async def health_check() -> dict[str, str]:
+    """Return API health status."""
+    return {"status": "healthy"}
