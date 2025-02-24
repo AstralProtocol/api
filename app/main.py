@@ -3,6 +3,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.components.authentication import router as authentication_router
+from app.components.health import router as health_router
+from app.components.location_proofs import router as location_proofs_router
+
 app = FastAPI(
     title="Astral API",
     description="A decentralized geospatial data API with EAS integration",
@@ -18,8 +22,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-@app.get("/health")
-async def health_check() -> dict[str, str]:
-    """Return API health status."""
-    return {"status": "healthy"}
+# Include routers
+app.include_router(health_router)
+app.include_router(
+    location_proofs_router, prefix=""
+)  # Mount at root for OGC API compliance
+app.include_router(authentication_router)
