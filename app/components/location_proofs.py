@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union, cast
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, Response
+from fastapi import APIRouter, HTTPException, Query, Response, status
 from fastapi.openapi.utils import get_openapi
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -60,6 +60,40 @@ class PropertyOperatorEnum(str, Enum):
     in_list = "in"  # in a list of values
 
 
+class Link(BaseModel):
+    """Link model following OGC API - Features specification."""
+
+    href: str
+    rel: str
+    type: str
+    title: str
+    hreflang: Optional[str] = None
+    length: Optional[int] = None
+
+
+class SpatialExtent(BaseModel):
+    """Spatial extent model following OGC API - Features specification."""
+
+    bbox: List[List[float]] = Field(default_factory=lambda: [[-180.0, -90.0, 180.0, 90.0]])
+    crs: str = "http://www.opengis.net/def/crs/OGC/1.3/CRS84"
+
+
+class TemporalExtent(BaseModel):
+    """Temporal extent model following OGC API - Features specification."""
+
+    interval: List[List[Optional[str]]] = Field(
+        default_factory=lambda: [["2024-01-01T00:00:00Z", None]]
+    )
+    trs: str = "http://www.opengis.net/def/uom/ISO-8601/0/Gregorian"
+
+
+class Extent(BaseModel):
+    """Extent model following OGC API - Features specification."""
+
+    spatial: SpatialExtent = Field(default_factory=SpatialExtent)
+    temporal: TemporalExtent = Field(default_factory=TemporalExtent)
+
+
 class Feature(BaseModel):
     """GeoJSON Feature model."""
 
@@ -69,7 +103,7 @@ class Feature(BaseModel):
     geometry: Dict[str, Any]
     properties: Dict[str, Any]
     id: UUID
-    links: List[Dict[str, str]]
+    links: List[Link]
 
 
 class FeatureCollection(BaseModel):
@@ -77,7 +111,7 @@ class FeatureCollection(BaseModel):
 
     type: Literal["FeatureCollection"]
     features: List[Feature]
-    links: List[Dict[str, str]]
+    links: List[Link]
     timeStamp: str
     numberMatched: int
     numberReturned: int
@@ -89,27 +123,33 @@ class Collection(BaseModel):
     id: str
     title: str
     description: str
-    links: List[Dict[str, str]]
-    extent: Dict[str, Any] = Field(
-        default_factory=lambda: {
-            "spatial": {
-                "bbox": [[-180, -90, 180, 90]],
-                "crs": "http://www.opengis.net/def/crs/OGC/1.3/CRS84",
-            },
-            "temporal": {"interval": [["2024-01-01T00:00:00Z", None]]},
-        }
-    )
+    links: List[Link]
+    extent: Extent = Field(default_factory=Extent)
     itemType: str = "feature"
     crs: List[str] = Field(
         default_factory=lambda: ["http://www.opengis.net/def/crs/OGC/1.3/CRS84"]
     )
+    storageCRS: Optional[str] = "http://www.opengis.net/def/crs/OGC/1.3/CRS84"
+    keywords: List[str] = Field(default_factory=list)
+    license: Optional[str] = None
+    attribution: Optional[str] = None
 
 
 class Collections(BaseModel):
     """Collections model following OGC API - Features specification."""
 
     collections: List[Collection]
-    links: List[Dict[str, str]]
+    links: List[Link]
+
+
+class ErrorResponse(BaseModel):
+    """Error response model following OGC API - Features specification."""
+
+    type: str = "https://api.astral.global/errors/1"
+    title: str
+    status: int
+    detail: str
+    instance: Optional[str] = None
 
 
 @router.get("/", response_model=Dict[str, Any])
@@ -123,30 +163,36 @@ async def landing_page() -> Dict[str, Any]:
         "title": "Astral API",
         "description": "A decentralized geospatial data API with EAS integration",
         "links": [
-            {
-                "href": "/",
-                "rel": "self",
-                "type": "application/json",
-                "title": "this document",
-            },
-            {
-                "href": "/api",
-                "rel": "service-desc",
-                "type": "application/vnd.oai.openapi+json;version=3.0",
-                "title": "the API definition",
-            },
-            {
-                "href": "/conformance",
-                "rel": "conformance",
-                "type": "application/json",
-                "title": "OGC API conformance classes implemented by this server",
-            },
-            {
-                "href": "/collections",
-                "rel": "data",
-                "type": "application/json",
-                "title": "Information about the feature collections",
-            },
+            Link(
+                href="/",
+                rel="self",
+                type="application/json",
+                title="this document",
+            ).model_dump(),
+            Link(
+                href="/api",
+                rel="service-desc",
+                type="application/vnd.oai.openapi+json;version=3.0",
+                title="the API definition",
+            ).model_dump(),
+            Link(
+                href="/conformance",
+                rel="conformance",
+                type="application/json",
+                title="OGC API conformance classes implemented by this server",
+            ).model_dump(),
+            Link(
+                href="/collections",
+                rel="data",
+                type="application/json",
+                title="Information about the feature collections",
+            ).model_dump(),
+            Link(
+                href="https://docs.astral.global",
+                rel="doc",
+                type="text/html",
+                title="Documentation for the Astral API",
+            ).model_dump(),
         ],
     }
 
@@ -184,68 +230,188 @@ async def list_collections() -> Collections:
                 id="location_proofs",
                 title="Location Proofs",
                 description="Collection of location proofs (attestations) from EAS",
+                keywords=["location", "proof", "attestation", "EAS", "blockchain"],
+                license="https://creativecommons.org/licenses/by/4.0/",
+                attribution="Astral Network",
                 links=[
-                    {
-                        "href": "/collections/location_proofs",
-                        "rel": "self",
-                        "type": "application/json",
-                        "title": "Location Proofs Collection",
-                    },
-                    {
-                        "href": "/collections/location_proofs/items",
-                        "rel": "items",
-                        "type": "application/geo+json",
-                        "title": "Location Proofs Items",
-                    },
+                    Link(
+                        href="/collections/location_proofs",
+                        rel="self",
+                        type="application/json",
+                        title="Location Proofs Collection",
+                    ),
+                    Link(
+                        href="/collections/location_proofs/items",
+                        rel="items",
+                        type="application/geo+json",
+                        title="Location Proofs Items",
+                    ),
+                    Link(
+                        href="/collections/location_proofs?f=html",
+                        rel="alternate",
+                        type="text/html",
+                        title="HTML version of this collection",
+                    ),
+                    Link(
+                        href="https://docs.astral.global/collections/location_proofs",
+                        rel="describedby",
+                        type="text/html",
+                        title="Documentation for the Location Proofs collection",
+                    ),
                 ],
+                extent=Extent(
+                    spatial=SpatialExtent(bbox=[[-180, -90, 180, 90]]),
+                    temporal=TemporalExtent(interval=[["2024-01-01T00:00:00Z", None]]),
+                ),
             )
         ],
         links=[
-            {
-                "href": "/collections",
-                "rel": "self",
-                "type": "application/json",
-                "title": "Collections",
-            }
+            Link(
+                href="/collections",
+                rel="self",
+                type="application/json",
+                title="Collections",
+            ),
+            Link(
+                href="/collections?f=html",
+                rel="alternate",
+                type="text/html",
+                title="HTML version of the collections",
+            ),
+            Link(
+                href="/",
+                rel="parent",
+                type="application/json",
+                title="Landing page",
+            ),
         ],
     )
 
 
 @router.get("/collections/{collection_id}", response_model=Collection)
-async def get_collection(collection_id: str) -> Collection:
+async def get_collection(
+    collection_id: str,
+    f: FormatEnum = Query(FormatEnum.json, description="Output format"),
+) -> Union[Collection, Response]:
     """Information about a specific collection.
 
     Args:
         collection_id: The ID of the collection
+        f: Output format (json, html, geojson)
 
     Returns:
-        Collection: Detailed information about the collection
+        Union[Collection, Response]: Detailed information about the collection
 
     Raises:
         HTTPException: If the collection is not found
     """
     if collection_id != "location_proofs":
-        raise HTTPException(status_code=404, detail="Collection not found")
+        error = ErrorResponse(
+            title="Collection not found",
+            status=404,
+            detail=f"Collection '{collection_id}' does not exist",
+            instance=f"/collections/{collection_id}",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=error.model_dump(),
+        )
 
-    return Collection(
+    collection = Collection(
         id="location_proofs",
         title="Location Proofs",
         description="Collection of location proofs (attestations) from EAS",
+        keywords=["location", "proof", "attestation", "EAS", "blockchain"],
+        license="https://creativecommons.org/licenses/by/4.0/",
+        attribution="Astral Network",
         links=[
-            {
-                "href": "/collections/location_proofs",
-                "rel": "self",
-                "type": "application/json",
-                "title": "Location Proofs Collection",
-            },
-            {
-                "href": "/collections/location_proofs/items",
-                "rel": "items",
-                "type": "application/geo+json",
-                "title": "Location Proofs Items",
-            },
+            Link(
+                href=f"/collections/{collection_id}",
+                rel="self",
+                type="application/json",
+                title="Location Proofs Collection",
+            ),
+            Link(
+                href=f"/collections/{collection_id}/items",
+                rel="items",
+                type="application/geo+json",
+                title="Location Proofs Items",
+            ),
+            Link(
+                href=f"/collections/{collection_id}?f=html",
+                rel="alternate",
+                type="text/html",
+                title="HTML version of this collection",
+            ),
+            Link(
+                href="/collections",
+                rel="collection",
+                type="application/json",
+                title="Collections",
+            ),
+            Link(
+                href="/",
+                rel="root",
+                type="application/json",
+                title="Landing page",
+            ),
+            Link(
+                href="https://docs.astral.global/collections/location_proofs",
+                rel="describedby",
+                type="text/html",
+                title="Documentation for the Location Proofs collection",
+            ),
         ],
+        extent=Extent(
+            spatial=SpatialExtent(bbox=[[-180, -90, 180, 90]]),
+            temporal=TemporalExtent(interval=[["2024-01-01T00:00:00Z", None]]),
+        ),
     )
+
+    if f == FormatEnum.html:
+        # Return HTML representation
+        html_content = (
+            f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>{collection.title}</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 20px; }}
+                h1 {{ color: #333; }}
+                .metadata {{ margin-bottom: 20px; }}
+                .links {{ margin-top: 20px; }}
+                .link {{ margin-bottom: 10px; }}
+            </style>
+        </head>
+        <body>
+            <h1>{collection.title}</h1>
+            <div class="metadata">
+                <p><strong>ID:</strong> {collection.id}</p>
+                <p><strong>Description:</strong> {collection.description}</p>
+                <p><strong>License:</strong> """
+            + f"""<a href="{collection.license}">{collection.license}</a></p>
+                <p><strong>Attribution:</strong> {collection.attribution}</p>
+            </div>
+            <div class="links">
+                <h2>Links</h2>
+                <div class="link-list">"""
+            + "".join(
+                [
+                    f'<div class="link"><a href="{link.href}">{link.title}</a> ({link.rel})</div>'
+                    for link in collection.links
+                ]
+            )
+            + """
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        )
+        return Response(content=html_content, media_type="text/html")
+
+    return collection
 
 
 @router.get("/api", response_model=Dict[str, Any])
@@ -343,22 +509,46 @@ async def get_features(
         HTTPException: If the collection is not found
     """
     if collection_id != "location_proofs":
-        raise HTTPException(status_code=404, detail="Collection not found")
+        error = ErrorResponse(
+            title="Collection not found",
+            status=404,
+            detail=f"Collection '{collection_id}' does not exist",
+            instance=f"/collections/{collection_id}/items",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=error.model_dump(),
+        )
 
     # Parse and validate spatial filters
     if bbox:
         try:
             bbox_parts = bbox.split(",")
             if len(bbox_parts) != 4:
+                error = ErrorResponse(
+                    title="Invalid parameter",
+                    status=400,
+                    detail=(
+                        "Invalid bbox format. Expected: minLon,minLat,maxLon,maxLat"
+                    ),
+                    instance=(f"/collections/{collection_id}/items?bbox={bbox}"),
+                )
                 raise HTTPException(
-                    status_code=400,
-                    detail="Invalid bbox format. Expected: minLon,minLat,maxLon,maxLat",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=error.model_dump(),
                 )
             # Parse bbox coordinates but don't store in unused variable
             [float(part) for part in bbox_parts]
         except ValueError:
+            error = ErrorResponse(
+                title="Invalid parameter",
+                status=400,
+                detail="Invalid bbox values. Expected numeric values.",
+                instance=(f"/collections/{collection_id}/items?bbox={bbox}"),
+            )
             raise HTTPException(
-                status_code=400, detail="Invalid bbox values. Expected numeric values."
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=error.model_dump(),
             )
 
     # Parse and validate intersects/within GeoJSON
@@ -369,16 +559,32 @@ async def get_features(
             # For now, we'll just check if it's valid JSON
             geometry = {"type": "intersects", "value": intersects}
         except Exception:
+            error = ErrorResponse(
+                title="Invalid parameter",
+                status=400,
+                detail="Invalid GeoJSON for intersects parameter.",
+                instance=(
+                    f"/collections/{collection_id}/items?intersects={intersects}"
+                ),
+            )
             raise HTTPException(
-                status_code=400, detail="Invalid GeoJSON for intersects parameter."
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=error.model_dump(),
             )
     elif within:
         try:
             # In a real implementation, we would parse and validate the GeoJSON here
             geometry = {"type": "within", "value": within}
         except Exception:
+            error = ErrorResponse(
+                title="Invalid parameter",
+                status=400,
+                detail="Invalid GeoJSON for within parameter.",
+                instance=(f"/collections/{collection_id}/items?within={within}"),
+            )
             raise HTTPException(
-                status_code=400, detail="Invalid GeoJSON for within parameter."
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=error.model_dump(),
             )
 
     # Apply buffer if specified
@@ -394,9 +600,17 @@ async def get_features(
             # Interval or open-ended
             parts = datetime_filter.split("/")
             if len(parts) != 2:
+                error = ErrorResponse(
+                    title="Invalid parameter",
+                    status=400,
+                    detail=("Invalid datetime format. Expected: date or start/end"),
+                    instance=(
+                        f"/collections/{collection_id}/items?datetime={datetime_filter}"
+                    ),
+                )
                 raise HTTPException(
-                    status_code=400,
-                    detail="Invalid datetime format. Expected: date or start/end",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=error.model_dump(),
                 )
 
             # Process temporal filter but don't store in unused variable
@@ -489,33 +703,124 @@ async def get_features(
     next_query_string = "&".join(next_params)
     next_url = f"{base_url}?{next_query_string}"
 
-    self_link = {
-        "href": self_url,
-        "rel": "self",
-        "type": "application/geo+json",
-        "title": "This collection",
-    }
-    next_link = {
-        "href": next_url,
-        "rel": "next",
-        "type": "application/geo+json",
-        "title": "Next page",
-    }
+    # Create links for different formats
+    format_links = []
+    for format_type in FormatEnum:
+        if format_type != f:
+            format_params = query_params.copy()
+            format_found = False
+            for i, param in enumerate(format_params):
+                if param.startswith("f="):
+                    format_params[i] = f"f={format_type.value}"
+                    format_found = True
+                    break
+
+            if not format_found:
+                format_params.append(f"f={format_type.value}")
+
+            format_query_string = "&".join(format_params)
+            format_url = f"{base_url}?{format_query_string}"
+
+            media_type = "application/geo+json"
+            if format_type == FormatEnum.html:
+                media_type = "text/html"
+            elif format_type == FormatEnum.json:
+                media_type = "application/json"
+
+            format_links.append(
+                Link(
+                    href=format_url,
+                    rel="alternate",
+                    type=media_type,
+                    title=f"{format_type.value.upper()} version",
+                )
+            )
+
+    links = [
+        Link(
+            href=self_url,
+            rel="self",
+            type="application/geo+json",
+            title="This collection",
+        ),
+        Link(
+            href=next_url,
+            rel="next",
+            type="application/geo+json",
+            title="Next page",
+        ),
+        Link(
+            href=f"/collections/{collection_id}",
+            rel="collection",
+            type="application/json",
+            title="The collection description",
+        ),
+        Link(
+            href="/",
+            rel="root",
+            type="application/json",
+            title="Landing page",
+        ),
+    ]
+
+    # Add format links
+    links.extend(format_links)
 
     feature_collection = FeatureCollection(
         type="FeatureCollection",
         features=[],
-        links=[self_link, next_link],
+        links=links,
         timeStamp=datetime.now(UTC).isoformat(),
         numberMatched=0,
         numberReturned=0,
     )
 
     if f == FormatEnum.html:
-        return Response(
-            content="<html><body>HTML view not implemented yet</body></html>",
-            media_type="text/html",
+        # Return HTML representation
+        html_content = (
+            f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Features - {collection_id}</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 20px; }}
+                h1 {{ color: #333; }}
+                .metadata {{ margin-bottom: 20px; }}
+                .links {{ margin-top: 20px; }}
+                .link {{ margin-bottom: 10px; }}
+                .features {{ margin-top: 20px; }}
+            </style>
+        </head>
+        <body>
+            <h1>Features - {collection_id}</h1>
+            <div class="metadata">
+                <p><strong>Timestamp:</strong> {feature_collection.timeStamp}</p>"""
+            + f"""
+                <p><strong>Number matched:</strong> {feature_collection.numberMatched}</p>
+                <p><strong>Number returned:</strong> {feature_collection.numberReturned}</p>
+            </div>
+            <div class="links">
+                <h2>Links</h2>
+                <div class="link-list">"""
+            + "".join(
+                [
+                    f'<div class="link"><a href="{link.href}">{link.title}</a> ({link.rel})</div>'
+                    for link in feature_collection.links
+                ]
+            )
+            + """
+                </div>
+            </div>
+            <div class="features">
+                <h2>Features</h2>
+                <p>No features found matching the query criteria.</p>
+            </div>
+        </body>
+        </html>
+        """
         )
+        return Response(content=html_content, media_type="text/html")
 
     return feature_collection
 
@@ -546,8 +851,28 @@ async def get_feature(
         HTTPException: If the collection or feature is not found
     """
     if collection_id != "location_proofs":
-        raise HTTPException(status_code=404, detail="Collection not found")
+        error = ErrorResponse(
+            title="Collection not found",
+            status=404,
+            detail=f"Collection '{collection_id}' does not exist",
+            instance=(f"/collections/{collection_id}/items/{feature_id}"),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=error.model_dump(),
+        )
 
     # TODO: Implement actual feature retrieval from database
     # For now, return a 404 since we don't have any features
-    raise HTTPException(status_code=404, detail="Feature not found")
+    error = ErrorResponse(
+        title="Feature not found",
+        status=404,
+        detail=(
+            f"Feature '{feature_id}' does not exist in collection '{collection_id}'"
+        ),
+        instance=(f"/collections/{collection_id}/items/{feature_id}"),
+    )
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=error.model_dump(),
+    )

@@ -20,14 +20,16 @@ def test_spatial_filters() -> None:
         "/collections/location_proofs/items", params={"bbox": "-180,-90,180"}
     )
     assert response.status_code == 400
-    assert "Invalid bbox format" in response.json()["detail"]
+    error = response.json()["detail"]
+    assert "Invalid bbox format" in error["detail"]
 
     # Test invalid bbox values
     response = client.get(
         "/collections/location_proofs/items", params={"bbox": "-180,-90,180,invalid"}
     )
     assert response.status_code == 400
-    assert "Invalid bbox values" in response.json()["detail"]
+    error = response.json()["detail"]
+    assert "Invalid bbox values" in error["detail"]
 
     # Test intersects parameter
     response = client.get(
@@ -94,7 +96,8 @@ def test_temporal_filters() -> None:
         params={"datetime": "2023-01-01T00:00:00Z/2023-12-31T23:59:59Z/extra"},
     )
     assert response.status_code == 400
-    assert "Invalid datetime format" in response.json()["detail"]
+    error = response.json()["detail"]
+    assert "Invalid datetime format" in error["detail"]
 
 
 def test_property_filters() -> None:
