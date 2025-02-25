@@ -87,13 +87,29 @@ DO NOT move on to the next task until you have committed the current one!
 
 ## 4. Integration with EAS & Scheduler
 
-- [ ] **Task 4.1: EAS Integration**
+- [x] **Task 4.1: EAS Integration**
   - • Implement service functions in `app/services/eas_integration.py` to interact with the EAS GraphQL endpoint.
+    - Create a robust `EASIntegrationService` class with proper async/await handling
+    - Implement methods to fetch unsynced attestations using GraphQL queries
+    - Design a mechanism to track sync state (last synced block, timestamp, attestation ID)
+    - Develop functions to parse attestation data and extract geospatial information
+    - Ensure proper error handling for network issues, invalid responses, and schema mismatches
+    - Implement proper SQLAlchemy session management with async patterns
+    - Add comprehensive logging for debugging and monitoring
   - • Design these functions to parse and store attestations in the database.
-- [ ] **Task 4.2: Scheduler for Regular EAS Polling**
+    - Create a `SyncState` model to track synchronization state
+    - Ensure proper relationship between attestations and chains
+    - Implement efficient database operations with proper transaction handling
+    - Add validation to ensure data integrity
+  - • Write thorough unit tests with proper mocking of async dependencies
+    - Test each component in isolation with appropriate mocks
+    - Ensure proper handling of edge cases (empty responses, network errors, etc.)
+    - Verify correct parsing of attestation data
+    - Test database operations with in-memory SQLite for speed
+- [x] **Task 4.2: Scheduler for Regular EAS Polling**
   - • Create a scheduler in `app/services/scheduler.py` to periodically poll the EAS GraphQL endpoint.
   - • Allow configuration for polling frequency (e.g., every minute by default, and more frequently if a user is online).
-- [ ] **Task 4.3: Integration Testing**
+- [x] **Task 4.3: Integration Testing**
   - • Write integration tests for the EAS polling mechanism.
   - • Ensure that new attestations are detected and stored correctly with appropriate status updates.
 
