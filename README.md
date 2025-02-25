@@ -10,6 +10,42 @@ A decentralized geospatial data API that integrates with Ethereum Attestation Se
 - Web3 authentication
 - GraphQL proxy layer
 
+## API Endpoints
+
+### Health Check
+- `GET /health`
+  - Returns API health status
+  - Response: `{"status": "healthy"}`
+
+### Location Proofs (OGC API - Features)
+- `GET /collections`
+  - Lists available collections
+  - Response: List of collections with metadata
+
+- `GET /collections/{collection_id}/items`
+  - Retrieves features from a specific collection
+  - Query Parameters:
+    - `bbox` (optional): Bounding box filter (minLon,minLat,maxLon,maxLat)
+    - `limit` (optional): Maximum number of features to return (1-1000)
+    - `offset` (optional): Starting offset for pagination
+  - Response: GeoJSON FeatureCollection
+
+### Authentication
+- `POST /auth/nonce`
+  - Request body: `{"address": "0x..."}`
+  - Returns a nonce for Web3 sign-in
+
+- `POST /auth/verify`
+  - Request body:
+    ```json
+    {
+      "address": "0x...",
+      "signature": "0x...",
+      "nonce": "..."
+    }
+    ```
+  - Returns a JWT token upon successful verification
+
 ## Requirements
 
 - Python 3.11+
