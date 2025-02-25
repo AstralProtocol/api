@@ -115,52 +115,114 @@ DO NOT move on to the next task until you have committed the current one!
 
 ---
 
-## 5. GraphQL Proxy Implementation
+## 5. Dockerization & Local Development Environment
 
-- [ ] **Task 5.1: Define GraphQL Schema & Resolvers**
+- [ ] **Task 5.1: Docker Configuration for API**
+  - • Create a `Dockerfile` for the FastAPI application with proper multi-stage build:
+    - Use Python 3.11 as the base image
+    - Install system dependencies (including PostGIS requirements)
+    - Set up a non-root user for security
+    - Install Python dependencies from pyproject.toml
+    - Configure proper entry points and health checks
+  - • Optimize the Docker image for size and security:
+    - Use multi-stage builds to minimize image size
+    - Include only necessary files and dependencies
+    - Set appropriate permissions and user context
+    - Configure proper environment variables
+
+- [ ] **Task 5.2: Docker Compose Setup**
+  - • Create a `docker-compose.yml` file that includes:
+    - PostgreSQL with PostGIS extension
+    - FastAPI application service
+    - Volume configurations for data persistence
+    - Network configuration for service communication
+    - Environment variable configuration
+  - • Configure environment-specific settings:
+    - Development environment with debugging enabled
+    - Test environment for running automated tests
+    - Production-like environment for local testing
+  - • Set up proper initialization scripts:
+    - Database initialization and schema creation
+    - Initial data seeding for testing
+    - Alembic migration integration
+
+- [ ] **Task 5.3: Development Workflow Integration**
+  - • Create helper scripts for common development tasks:
+    - Database reset and migration scripts
+    - Test execution within containers
+    - Log viewing and debugging utilities
+  - • Document the Docker-based development workflow:
+    - Setup instructions in README.md
+    - Common commands and troubleshooting
+    - Best practices for local development
+  - • Implement hot-reload for local development:
+    - Configure volume mounts for code changes
+    - Set up Uvicorn with reload capabilities
+    - Ensure proper handling of static files
+
+- [ ] **Task 5.4: Testing & Validation**
+  - • Test the complete Docker setup:
+    - Verify all services start correctly
+    - Ensure database migrations run properly
+    - Validate API functionality end-to-end
+    - Test scheduler and EAS integration
+  - • Create integration tests specifically for the containerized environment:
+    - Test database connectivity and migrations
+    - Verify proper service communication
+    - Ensure environment variables are properly used
+  - • Document any environment-specific considerations:
+    - Performance implications
+    - Resource requirements
+    - Network and security configurations
+
+---
+
+## 6. GraphQL Proxy Implementation
+
+- [ ] **Task 6.1: Define GraphQL Schema & Resolvers**
   - • Use Ariadne or Graphene to create a GraphQL schema that mirrors the functionality of the REST API.
   - • Implement resolvers that proxy requests to the underlying REST endpoints or directly call service layer functions.
-- [ ] **Task 5.2: Integration & Testing**
+- [ ] **Task 6.2: Integration & Testing**
   - • Integrate the GraphQL endpoint into the FastAPI application.
   - • Write tests to verify GraphQL queries and mutations.
-- [ ] **Task 5.3: Documentation**
+- [ ] **Task 6.3: Documentation**
   - • Update API documentation to include GraphQL usage instructions.
 
 ---
 
-## 6. Authentication & Authorization
+## 7. Authentication & Authorization
 
-- [ ] **Task 6.1: Implement Web3 Sign-In**
+- [ ] **Task 7.1: Implement Web3 Sign-In**
   - • Integrate a Web3 sign-in mechanism (e.g., "Sign in with Ethereum") into the authentication flow.
   - • Ensure that authenticated users can securely access private endpoints.
-- [ ] **Task 6.2: Role-Based Access Control**
+- [ ] **Task 7.2: Role-Based Access Control**
   - • Implement role-based access controls to manage public vs. private proofs.
   - • Write tests to ensure proper enforcement of permissions.
-- [ ] **Task 6.3: Documentation & API Security**
+- [ ] **Task 7.3: Documentation & API Security**
   - • Document the authentication and authorization flow in the README.
   - • Review security configurations and update the Implementation Plan accordingly.
 
 ---
 
-## 7. Final Integration, Testing & Deployment
+## 8. Final Integration, Testing & Deployment
 
-- [ ] **Task 7.1: End-to-End Testing**
+- [ ] **Task 8.1: End-to-End Testing**
   - • Write comprehensive end-to-end tests covering REST, GraphQL, and authentication flows.
   - • Ensure the system passes OGC API compliance tests.
-- [ ] **Task 7.2: CI/CD Finalization**
+- [ ] **Task 8.2: CI/CD Finalization**
   - • Refine the CI/CD pipeline to deploy to AWS (using ECS/Fargate, RDS, etc.) on merge to the production branch.
   - • Test the deployment process in a staging environment.
-- [ ] **Task 7.3: Documentation & Rollback Plan**
+- [ ] **Task 8.3: Documentation & Rollback Plan**
   - • Finalize and update all documentation (README, API docs via MkDocs, etc.).
   - • Create a rollback plan in case of deployment issues.
 
 ---
 
-## 8. Ongoing Maintenance & Future Enhancements
+## 9. Ongoing Maintenance & Future Enhancements
 
-- [ ] **Task 8.1: Monitor & Log**
+- [ ] **Task 9.1: Monitor & Log**
   - • Set up logging (integrate with AWS CloudWatch) to monitor API performance and errors.
-- [ ] **Task 8.2: Scheduled Reviews**
+- [ ] **Task 9.2: Scheduled Reviews**
   - • Plan periodic reviews of the codebase and database schema for potential improvements.
-- [ ] **Task 8.3: Extend Features**
+- [ ] **Task 9.3: Extend Features**
   - • Based on user feedback, plan future enhancements (e.g., geospatial analytics, new authentication methods, etc.).
