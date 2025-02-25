@@ -1,5 +1,6 @@
 """OGC API - Features compliant location proofs router."""
 
+import json
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union, cast
@@ -7,7 +8,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from fastapi.openapi.utils import get_openapi
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 router = APIRouter(tags=["Location Proofs"])
 
@@ -74,7 +75,9 @@ class Link(BaseModel):
 class SpatialExtent(BaseModel):
     """Spatial extent model following OGC API - Features specification."""
 
-    bbox: List[List[float]] = Field(default_factory=lambda: [[-180.0, -90.0, 180.0, 90.0]])
+    bbox: List[List[float]] = Field(
+        default_factory=lambda: [[-180.0, -90.0, 180.0, 90.0]]
+    )
     crs: str = "http://www.opengis.net/def/crs/OGC/1.3/CRS84"
 
 
@@ -143,13 +146,263 @@ class Collections(BaseModel):
 
 
 class ErrorResponse(BaseModel):
-    """Error response model following OGC API - Features specification."""
+    """Error response model following RFC 7807 Problem Details for HTTP APIs."""
 
-    type: str = "https://api.astral.global/errors/1"
-    title: str
-    status: int
-    detail: str
-    instance: Optional[str] = None
+    type: str = Field(
+        default="https://api.astral.global/errors/validation-error",
+        description="A URI reference that identifies the problem type",
+    )
+    title: str = Field(
+        ..., description="A short, human-readable summary of the problem"
+    )
+    status: int = Field(..., description="The HTTP status code")
+    detail: str = Field(..., description="A human-readable explanation of the problem")
+    instance: str = Field(
+        ...,
+        description="A URI reference that identifies the specific occurrence of the problem",
+    )
+
+    # Additional fields for more detailed error information
+    validation_errors: Optional[List[Dict[str, Any]]] = Field(
+        None, description="List of validation errors for request parameters"
+    )
+    error_code: Optional[str] = Field(
+        None, description="Application-specific error code"
+    )
+    help_url: Optional[str] = Field(
+        None, description="URL to documentation about this error"
+    )
+
+
+# Validation models for query parameters
+class BBoxModel(BaseModel):
+    """Validation model for bbox parameter."""
+
+    bbox: str
+
+    @field_validator("bbox")
+    def validate_bbox(cls, v: str) -> str:
+        """Validate bbox format: minLon,minLat,maxLon,maxLat."""
+        try:
+            parts = v.split(",")
+            if len(parts) != 4:
+                raise ValueError(
+                    "Invalid bbox format: Expected format: minLon,minLat,maxLon,maxLat"
+                )
+
+            min_lon, min_lat, max_lon, max_lat = parts
+
+            try:
+                min_lon_float = float(min_lon)
+                min_lat_float = float(min_lat)
+                max_lon_float = float(max_lon)
+                max_lat_float = float(max_lat)
+            except ValueError:
+                raise ValueError("Invalid bbox values: All values must be numeric")
+
+            # Validate longitude and latitude ranges
+            if not (-180 <= min_lon_float <= 180) or not (-180 <= max_lon_float <= 180):
+                raise ValueError("Longitude values must be between -180 and 180")
+            if not (-90 <= min_lat_float <= 90) or not (-90 <= max_lat_float <= 90):
+                raise ValueError("Latitude values must be between -90 and 90")
+            if min_lon_float > max_lon_float:
+                raise ValueError("minLon must be less than or equal to maxLon")
+            if min_lat_float > max_lat_float:
+                raise ValueError("minLat must be less than or equal to maxLat")
+
+            return v
+        except ValueError as e:
+            raise ValueError(f"{str(e)}")
+
+
+class DateTimeModel(BaseModel):
+    """Validation model for datetime parameter."""
+
+    datetime: str
+
+    @field_validator("datetime")
+    def validate_datetime(cls, v: str) -> str:
+        """Validate datetime format according to RFC 3339."""
+        if "/" in v:
+            # Interval format: start/end, start/.., or ../end
+            parts = v.split("/")
+            if len(parts) != 2:
+                raise ValueError(
+                    "Invalid datetime format: Expected format: start/end, start/.., or ../end"
+                )
+
+            start, end = parts
+
+            # Validate start date if not open-ended
+            if start != "..":
+                try:
+                    # Ensure the format includes time component and timezone
+                    if not (
+                        ("T" in start)
+                        and (start.endswith("Z") or "+" in start or "-" in start[10:])
+                    ):
+                        raise ValueError(
+                            "Invalid datetime format: Date must include time and timezone (e.g., 2023-01-01T00:00:00Z)"
+                        )
+                    datetime.fromisoformat(start.replace("Z", "+00:00"))
+                except ValueError as e:
+                    raise ValueError(f"Invalid datetime format: {str(e)}")
+
+            # Validate end date if not open-ended
+            if end != "..":
+                try:
+                    # Ensure the format includes time component and timezone
+                    if not (
+                        ("T" in end)
+                        and (end.endswith("Z") or "+" in end or "-" in end[10:])
+                    ):
+                        raise ValueError(
+                            "Invalid datetime format: Date must include time and timezone (e.g., 2023-01-01T00:00:00Z)"
+                        )
+                    datetime.fromisoformat(end.replace("Z", "+00:00"))
+                except ValueError as e:
+                    raise ValueError(f"Invalid datetime format: {str(e)}")
+        else:
+            # Single date format
+            try:
+                # Ensure the format includes time component and timezone
+                if not (("T" in v) and (v.endswith("Z") or "+" in v or "-" in v[10:])):
+                    raise ValueError(
+                        "Invalid datetime format: Date must include time and timezone (e.g., 2023-01-01T00:00:00Z)"
+                    )
+                datetime.fromisoformat(v.replace("Z", "+00:00"))
+            except ValueError as e:
+                raise ValueError(f"Invalid datetime format: {str(e)}")
+
+        return v
+
+
+class GeoJSONModel(BaseModel):
+    """Validation model for GeoJSON parameters."""
+
+    geojson: str
+
+    @field_validator("geojson")
+    def validate_geojson(cls, v: str) -> str:
+        """Validate GeoJSON format."""
+        try:
+            data = json.loads(v)
+
+            # Basic GeoJSON validation
+            if "type" not in data:
+                raise ValueError("Missing 'type' property")
+
+            if data["type"] not in [
+                "Point",
+                "LineString",
+                "Polygon",
+                "MultiPoint",
+                "MultiLineString",
+                "MultiPolygon",
+                "GeometryCollection",
+            ]:
+                raise ValueError(f"Invalid geometry type: {data['type']}")
+
+            if "coordinates" not in data and data["type"] != "GeometryCollection":
+                raise ValueError("Missing 'coordinates' property")
+
+            if data["type"] == "GeometryCollection" and "geometries" not in data:
+                raise ValueError("GeometryCollection missing 'geometries' property")
+
+            return v
+        except json.JSONDecodeError:
+            raise ValueError("Invalid JSON format")
+        except Exception as e:
+            raise ValueError(f"Invalid GeoJSON: {str(e)}")
+
+
+# Helper function for validating query parameters
+def validate_query_params(
+    collection_id: str,
+    bbox: Optional[str] = None,
+    intersects: Optional[str] = None,
+    within: Optional[str] = None,
+    datetime_filter: Optional[str] = None,
+) -> None:
+    """Validate query parameters using Pydantic models.
+
+    Args:
+        collection_id: The collection ID
+        bbox: Bounding box parameter
+        intersects: GeoJSON for intersection test
+        within: GeoJSON for within test
+        datetime_filter: Datetime filter
+
+    Raises:
+        HTTPException: If validation fails
+    """
+    # Validate bbox parameter
+    if bbox:
+        try:
+            BBoxModel(bbox=bbox)
+        except ValueError as e:
+            error = ErrorResponse(
+                title="Invalid parameter",
+                status=400,
+                detail=f"Invalid bbox parameter: {str(e)}",
+                instance=f"/collections/{collection_id}/items?bbox={bbox}",
+                validation_errors=[{"field": "bbox", "error": str(e)}],
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=error.model_dump(),
+            )
+
+    # Validate intersects parameter
+    if intersects:
+        try:
+            GeoJSONModel(geojson=intersects)
+        except ValueError as e:
+            error = ErrorResponse(
+                title="Invalid parameter",
+                status=400,
+                detail=f"Invalid intersects parameter: {str(e)}",
+                instance=f"/collections/{collection_id}/items?intersects={intersects}",
+                validation_errors=[{"field": "intersects", "error": str(e)}],
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=error.model_dump(),
+            )
+
+    # Validate within parameter
+    if within:
+        try:
+            GeoJSONModel(geojson=within)
+        except ValueError as e:
+            error = ErrorResponse(
+                title="Invalid parameter",
+                status=400,
+                detail=f"Invalid within parameter: {str(e)}",
+                instance=f"/collections/{collection_id}/items?within={within}",
+                validation_errors=[{"field": "within", "error": str(e)}],
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=error.model_dump(),
+            )
+
+    # Validate datetime parameter
+    if datetime_filter:
+        try:
+            DateTimeModel(datetime=datetime_filter)
+        except ValueError as e:
+            error = ErrorResponse(
+                title="Invalid parameter",
+                status=400,
+                detail=f"Invalid datetime parameter: {str(e)}",
+                instance=f"/collections/{collection_id}/items?datetime={datetime_filter}",
+                validation_errors=[{"field": "datetime", "error": str(e)}],
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=error.model_dump(),
+            )
 
 
 @router.get("/", response_model=Dict[str, Any])
@@ -370,8 +623,15 @@ async def get_collection(
 
     if f == FormatEnum.html:
         # Return HTML representation
-        html_content = (
-            f"""
+        link_list = "".join(
+            [
+                f'<div class="link"><a href="{link.href}">{link.title}</a> '
+                f"({link.rel})</div>"
+                for link in collection.links
+            ]
+        )
+
+        html_content = f"""
         <!DOCTYPE html>
         <html>
         <head>
@@ -389,26 +649,18 @@ async def get_collection(
             <div class="metadata">
                 <p><strong>ID:</strong> {collection.id}</p>
                 <p><strong>Description:</strong> {collection.description}</p>
-                <p><strong>License:</strong> """
-            + f"""<a href="{collection.license}">{collection.license}</a></p>
+                <p><strong>License:</strong> <a href="{collection.license}">{collection.license}</a></p>
                 <p><strong>Attribution:</strong> {collection.attribution}</p>
             </div>
             <div class="links">
                 <h2>Links</h2>
-                <div class="link-list">"""
-            + "".join(
-                [
-                    f'<div class="link"><a href="{link.href}">{link.title}</a> ({link.rel})</div>'
-                    for link in collection.links
-                ]
-            )
-            + """
+                <div class="link-list">
+                {link_list}
                 </div>
             </div>
         </body>
         </html>
         """
-        )
         return Response(content=html_content, media_type="text/html")
 
     return collection
@@ -506,7 +758,7 @@ async def get_features(
             response
 
     Raises:
-        HTTPException: If the collection is not found
+        HTTPException: If the collection is not found or parameters are invalid
     """
     if collection_id != "location_proofs":
         error = ErrorResponse(
@@ -520,131 +772,100 @@ async def get_features(
             detail=error.model_dump(),
         )
 
-    # Parse and validate spatial filters
-    if bbox:
-        try:
-            bbox_parts = bbox.split(",")
-            if len(bbox_parts) != 4:
-                error = ErrorResponse(
-                    title="Invalid parameter",
-                    status=400,
-                    detail=(
-                        "Invalid bbox format. Expected: minLon,minLat,maxLon,maxLat"
-                    ),
-                    instance=(f"/collections/{collection_id}/items?bbox={bbox}"),
-                )
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=error.model_dump(),
-                )
-            # Parse bbox coordinates but don't store in unused variable
-            [float(part) for part in bbox_parts]
-        except ValueError:
-            error = ErrorResponse(
-                title="Invalid parameter",
-                status=400,
-                detail="Invalid bbox values. Expected numeric values.",
-                instance=(f"/collections/{collection_id}/items?bbox={bbox}"),
-            )
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=error.model_dump(),
-            )
+    # Validate query parameters
+    validate_query_params(
+        collection_id=collection_id,
+        bbox=bbox,
+        intersects=intersects,
+        within=within,
+        datetime_filter=datetime_filter,
+    )
 
-    # Parse and validate intersects/within GeoJSON
+    # Additional validation for property filters
+    if property_name and not property_op:
+        error = ErrorResponse(
+            title="Invalid parameter",
+            status=400,
+            detail="Property operator (property_op) is required when property_name is provided",
+            instance=f"/collections/{collection_id}/items?property_name={property_name}",
+            validation_errors=[
+                {"field": "property_op", "error": "Missing required parameter"}
+            ],
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error.model_dump(),
+        )
+
+    if property_op and not property_name:
+        error = ErrorResponse(
+            title="Invalid parameter",
+            status=400,
+            detail="Property name (property_name) is required when property_op is provided",
+            instance=f"/collections/{collection_id}/items?property_op={property_op.value}",
+            validation_errors=[
+                {"field": "property_name", "error": "Missing required parameter"}
+            ],
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error.model_dump(),
+        )
+
+    # Validate buffer parameter
+    if buffer is not None and buffer < 0:
+        error = ErrorResponse(
+            title="Invalid parameter",
+            status=400,
+            detail="Buffer distance must be non-negative",
+            instance=f"/collections/{collection_id}/items?buffer={buffer}",
+            validation_errors=[{"field": "buffer", "error": "Must be non-negative"}],
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error.model_dump(),
+        )
+
+    # Parse and validate spatial filters
     geometry = None
     if intersects:
-        try:
-            # In a real implementation, we would parse and validate the GeoJSON here
-            # For now, we'll just check if it's valid JSON
-            geometry = {"type": "intersects", "value": intersects}
-        except Exception:
-            error = ErrorResponse(
-                title="Invalid parameter",
-                status=400,
-                detail="Invalid GeoJSON for intersects parameter.",
-                instance=(
-                    f"/collections/{collection_id}/items?intersects={intersects}"
-                ),
-            )
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=error.model_dump(),
-            )
+        geometry = {"type": "intersects", "value": intersects}
     elif within:
-        try:
-            # In a real implementation, we would parse and validate the GeoJSON here
-            geometry = {"type": "within", "value": within}
-        except Exception:
-            error = ErrorResponse(
-                title="Invalid parameter",
-                status=400,
-                detail="Invalid GeoJSON for within parameter.",
-                instance=(f"/collections/{collection_id}/items?within={within}"),
-            )
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=error.model_dump(),
-            )
+        geometry = {"type": "within", "value": within}
 
     # Apply buffer if specified
     if buffer is not None and buffer > 0 and geometry:
-        # In a real implementation, we would apply the buffer to the geometry
-        # For now, we'll just note that it was requested
-        geometry["buffer"] = str(buffer)  # Convert float to string to avoid type error
+        geometry["buffer"] = str(buffer)
 
-    # Parse and validate temporal filter
+    # Parse temporal filter
     if datetime_filter:
-        # Handle different temporal formats: single date, interval, or open-ended
         if "/" in datetime_filter:
-            # Interval or open-ended
             parts = datetime_filter.split("/")
-            if len(parts) != 2:
-                error = ErrorResponse(
-                    title="Invalid parameter",
-                    status=400,
-                    detail=("Invalid datetime format. Expected: date or start/end"),
-                    instance=(
-                        f"/collections/{collection_id}/items?datetime={datetime_filter}"
-                    ),
-                )
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=error.model_dump(),
-                )
-
-            # Process temporal filter but don't store in unused variable
             start_date = parts[0] if parts[0] != ".." else None
             end_date = parts[1] if parts[1] != ".." else None
-
-            # In a real implementation, we would use these values for filtering
             _ = {
                 "start": start_date,
                 "end": end_date,
                 "operator": temporal_op.value if temporal_op else "during",
             }
         else:
-            # Single date
-            # In a real implementation, we would use this value for filtering
             _ = {
                 "date": datetime_filter,
                 "operator": temporal_op.value if temporal_op else "equals",
             }
 
-    # Parse and validate property filter
+    # Parse property filter
     if property_name and property_op:
-        # In a real implementation, we would use these values for filtering
         _ = {
             "name": property_name,
             "operator": property_op.value,
             "value": property_value,
         }
 
-    # Parse and validate sorting
+    # Parse sorting
     if sortby:
         descending = sortby.startswith("-")
         field = sortby[1:] if descending else sortby
-        # In a real implementation, we would use these values for sorting
         _ = {"field": field, "descending": descending}
 
     # TODO: Implement actual feature retrieval from database with filters
@@ -777,8 +998,15 @@ async def get_features(
 
     if f == FormatEnum.html:
         # Return HTML representation
-        html_content = (
-            f"""
+        link_list = "".join(
+            [
+                f'<div class="link"><a href="{link.href}">{link.title}</a> '
+                f"({link.rel})</div>"
+                for link in feature_collection.links
+            ]
+        )
+
+        html_content = f"""
         <!DOCTYPE html>
         <html>
         <head>
@@ -795,21 +1023,14 @@ async def get_features(
         <body>
             <h1>Features - {collection_id}</h1>
             <div class="metadata">
-                <p><strong>Timestamp:</strong> {feature_collection.timeStamp}</p>"""
-            + f"""
+                <p><strong>Timestamp:</strong> {feature_collection.timeStamp}</p>
                 <p><strong>Number matched:</strong> {feature_collection.numberMatched}</p>
                 <p><strong>Number returned:</strong> {feature_collection.numberReturned}</p>
             </div>
             <div class="links">
                 <h2>Links</h2>
-                <div class="link-list">"""
-            + "".join(
-                [
-                    f'<div class="link"><a href="{link.href}">{link.title}</a> ({link.rel})</div>'
-                    for link in feature_collection.links
-                ]
-            )
-            + """
+                <div class="link-list">
+                {link_list}
                 </div>
             </div>
             <div class="features">
@@ -819,7 +1040,6 @@ async def get_features(
         </body>
         </html>
         """
-        )
         return Response(content=html_content, media_type="text/html")
 
     return feature_collection

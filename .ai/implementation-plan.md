@@ -55,13 +55,31 @@ DO NOT move on to the next task until you have committed the current one!
 
 ## 3. API Development (REST Endpoints)
 
-- [ ] **Task 3.1: Define API Routing Structure**
+- [x] **Task 3.1: Define API Routing Structure** (commit: 192d181)
   - • Create a modular FastAPI routing structure under `app/components/` for endpoints (e.g., location proofs, authentication, health-check).
   - • Document endpoint specifications in the code and README.
 - [ ] **Task 3.2: Implement Core Endpoints**
-  - • Develop endpoints for querying and creating location proofs.
-  - • Ensure OGC API – Features compliance for endpoints like `/collections` and `/collections/{collectionId}/items`.
-- [ ] **Task 3.3: Error Handling & Validation**
+- [x] **Task 3.2.1: Core OGC API Features Implementation**
+  - • Implement landing page (/) with links and metadata
+  - • Create API definition (/api) endpoint
+  - • Add conformance declaration (/conformance)
+  - • Develop collections listing (/collections)
+  - • Implement single collection (/collections/{collectionId})
+  - • Create features endpoint (/collections/{collectionId}/items)
+  - • Add single feature by ID (/collections/{collectionId}/items/{featureId})
+  - • Ensure proper GeoJSON responses for all endpoints
+- [x] **Task 3.2.2: Advanced Query Capabilities**
+  - • Implement spatial filters (bbox, intersects, within)
+  - • Add temporal filters (instant and range queries)
+  - • Create property filters (equals, greater/less than, LIKE)
+  - • Implement complex geometry queries (polygon, buffer)
+- [x] **Task 3.2.3: Metadata and Links Structure**
+  - • Implement proper link relations between resources
+  - • Add complete metadata for collections
+  - • Support different response formats
+  - • Implement proper error responses and status codes
+  - • Write comprehensive tests for all implemented functionality
+- [x] **Task 3.3: Error Handling & Validation**
   - • Implement error handling and input validation using Pydantic.
   - • Write unit tests for endpoint functionality.
 
