@@ -136,6 +136,55 @@ Status badges:
 - [Schema Design](docs/schema-design.md)
 - [Implementation Plan](docs/implementation-plan.md)
 
+## Adding New Chains
+
+The API supports multiple blockchain networks through the `chain` table in the database. To add new chains or update existing ones, use the `seed_chains.py` script:
+
+### Basic Usage
+
+```bash
+# Add default supported chains (if they don't exist)
+docker-compose exec api python scripts/seed_chains.py
+
+# Add specific chain IDs
+docker-compose exec api python scripts/seed_chains.py 137 56 43114
+
+# Force update all default chains (overwrites existing entries)
+docker-compose exec api python scripts/seed_chains.py --all
+
+# Add chains with custom EAS endpoints
+docker-compose exec api python scripts/seed_chains.py --eas-file=custom_eas_endpoints.json
+```
+
+### Custom EAS Endpoints
+
+To add chains with custom EAS GraphQL endpoints, create a JSON file with the following format:
+
+```json
+{
+    "1": "https://easscan.org/graphql",
+    "137": "https://polygon.easscan.org/graphql",
+    "43114": "https://avalanche.easscan.org/graphql"
+}
+```
+
+Where the keys are chain IDs and the values are the GraphQL endpoints.
+
+### Adding to Production
+
+When adding chains to a production database:
+
+1. Test the changes in a staging environment first
+2. Back up the database before making changes
+3. Run the script with specific chain IDs to minimize impact:
+   ```bash
+   docker-compose exec api python scripts/seed_chains.py 137 43114
+   ```
+4. Verify the changes by querying the database:
+   ```bash
+   docker-compose exec db psql -U postgres -d astral -c "SELECT chain_id, name, chain FROM chain"
+   ```
+
 ## License
 
 [License details to be added]
