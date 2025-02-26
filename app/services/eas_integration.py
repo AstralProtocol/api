@@ -485,19 +485,34 @@ class EASIntegrationService:
         """Get the EAS GraphQL endpoint for a chain.
 
         Args:
-            chain: Chain object
+            chain: Chain model instance
 
         Returns:
             EAS endpoint URL or None if not configured
         """
         # Check if chain has EAS endpoint in its features
-        features = chain.features or {}
-        eas_feature = next(
-            (f for f in features.get("features", []) if f.get("name") == "eas"), None
-        )
+        features = chain.features
+
+        # Handle the case where features is already a list
+        if isinstance(features, list):
+            eas_feature = next(
+                (f for f in features if isinstance(f, dict) and f.get("name") == "EAS"),
+                None,
+            )
+        else:
+            # Handle the case where features is a dictionary
+            features_dict = features or {}
+            eas_feature = next(
+                (
+                    f
+                    for f in features_dict.get("features", [])
+                    if f.get("name") == "EAS"
+                ),
+                None,
+            )
 
         if not eas_feature:
             return None
 
-        endpoint = eas_feature.get("graphql")
+        endpoint = eas_feature.get("url") or eas_feature.get("graphql")
         return cast(Optional[str], endpoint)

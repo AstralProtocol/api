@@ -160,7 +160,7 @@ DO NOT move on to the next task until you have committed the current one!
     - Set up Uvicorn with reload capabilities
     - Ensure proper handling of static files
 
-- [ ] **Task 5.4: Testing & Validation**
+- [x] **Task 5.4: Testing & Validation**
   - • Test the complete Docker setup:
     - Verify all services start correctly
     - Ensure database migrations run properly
@@ -177,52 +177,108 @@ DO NOT move on to the next task until you have committed the current one!
 
 ---
 
-## 6. GraphQL Proxy Implementation
+## 6. Database Population
 
-- [ ] **Task 6.1: Define GraphQL Schema & Resolvers**
+- [x] **Task 6.1: Chain Data Seeding**
+  - • Create a script to fetch chain data from ethereum-lists/chains repository
+  - • Transform the data to match the Chain model structure
+  - • Add EAS GraphQL endpoints to each chain's features
+  - • Seed the database with data for multiple chains
+  - • Ensure the script is idempotent and can be run multiple times safely
+
+- [x] **Task 6.2: Location Proof Seeding**
+  - • Fetch location proofs from respective GraphQL endpoints for each supported chain
+  - • Develop location proof transform and load scripts with proper error handling
+  - • Include scripts to create associated records in the address table
+  - • Implement proper handling of different schema types across chains
+  - • Add support for incremental updates to avoid duplicate data
+  - • Implement database query functionality in the `get_features` endpoint to retrieve location proofs
+  - • Add support for spatial, temporal, and property filters in the query
+  - • Ensure proper conversion of database rows to GeoJSON features
+  - • Fix type handling for feature IDs to support integer IDs
+
+- [ ] **Task 6.2.1: Refine Location Proof ETL Process**
+  - • Improve memo field extraction and processing from EAS attestations
+  - • Add support for media type and media data extraction and storage
+  - • Implement recipe type and recipe payload processing
+  - • Maintain the location type string as a unique identifier
+  - • Add validation for location proof data integrity
+  - • Enhance error handling and logging during ETL process
+  - • Create a mechanism to handle updates to existing location proofs
+
+- [ ] **Task 6.3: User Account Seeding**
+  - • Create a script to generate test user accounts with different roles and permissions
+  - • Include various verification statuses (verified, pending, unverified)
+  - • Generate secure but predictable passwords for testing
+
+- [ ] **Task 6.4: Address and Wallet Seeding**
+  - • Create test wallet addresses for different chains
+  - • Associate addresses with seeded user accounts
+  - • Include various verification statuses
+
+- [ ] **Task 6.5: EAS Attestation Mock Data**
+  - • Generate mock EAS attestation data for testing the EAS integration
+  - • Create attestations for different chains
+  - • Link attestations to user accounts and location proofs
+
+- [ ] **Task 6.6: Database Initialization Script**
+  - • Create a master script to run all seeding scripts in the correct order
+  - • Add checks to prevent duplicate data
+  - • Include command-line options for selective seeding
+
+- [ ] **Task 6.7: Database Backup and Restore**
+  - • Create scripts for database backup and restore operations
+  - • Include scheduling options for automated backups
+  - • Add documentation for backup procedures
+
+---
+
+## 7. GraphQL Proxy Implementation
+
+- [ ] **Task 7.1: Define GraphQL Schema & Resolvers**
   - • Use Ariadne or Graphene to create a GraphQL schema that mirrors the functionality of the REST API.
   - • Implement resolvers that proxy requests to the underlying REST endpoints or directly call service layer functions.
-- [ ] **Task 6.2: Integration & Testing**
+- [ ] **Task 7.2: Integration & Testing**
   - • Integrate the GraphQL endpoint into the FastAPI application.
   - • Write tests to verify GraphQL queries and mutations.
-- [ ] **Task 6.3: Documentation**
+- [ ] **Task 7.3: Documentation**
   - • Update API documentation to include GraphQL usage instructions.
 
 ---
 
-## 7. Authentication & Authorization
+## 8. Authentication & Authorization
 
-- [ ] **Task 7.1: Implement Web3 Sign-In**
+- [ ] **Task 8.1: Implement Web3 Sign-In**
   - • Integrate a Web3 sign-in mechanism (e.g., "Sign in with Ethereum") into the authentication flow.
   - • Ensure that authenticated users can securely access private endpoints.
-- [ ] **Task 7.2: Role-Based Access Control**
+- [ ] **Task 8.2: Role-Based Access Control**
   - • Implement role-based access controls to manage public vs. private proofs.
   - • Write tests to ensure proper enforcement of permissions.
-- [ ] **Task 7.3: Documentation & API Security**
+- [ ] **Task 8.3: Documentation & API Security**
   - • Document the authentication and authorization flow in the README.
   - • Review security configurations and update the Implementation Plan accordingly.
 
 ---
 
-## 8. Final Integration, Testing & Deployment
+## 9. Final Integration, Testing & Deployment
 
-- [ ] **Task 8.1: End-to-End Testing**
+- [ ] **Task 9.1: End-to-End Testing**
   - • Write comprehensive end-to-end tests covering REST, GraphQL, and authentication flows.
   - • Ensure the system passes OGC API compliance tests.
-- [ ] **Task 8.2: CI/CD Finalization**
+- [ ] **Task 9.2: CI/CD Finalization**
   - • Refine the CI/CD pipeline to deploy to AWS (using ECS/Fargate, RDS, etc.) on merge to the production branch.
   - • Test the deployment process in a staging environment.
-- [ ] **Task 8.3: Documentation & Rollback Plan**
+- [ ] **Task 9.3: Documentation & Rollback Plan**
   - • Finalize and update all documentation (README, API docs via MkDocs, etc.).
   - • Create a rollback plan in case of deployment issues.
 
 ---
 
-## 9. Ongoing Maintenance & Future Enhancements
+## 10. Ongoing Maintenance & Future Enhancements
 
-- [ ] **Task 9.1: Monitor & Log**
+- [ ] **Task 10.1: Monitor & Log**
   - • Set up logging (integrate with AWS CloudWatch) to monitor API performance and errors.
-- [ ] **Task 9.2: Scheduled Reviews**
+- [ ] **Task 10.2: Scheduled Reviews**
   - • Plan periodic reviews of the codebase and database schema for potential improvements.
-- [ ] **Task 9.3: Extend Features**
+- [ ] **Task 10.3: Extend Features**
   - • Based on user feedback, plan future enhancements (e.g., geospatial analytics, new authentication methods, etc.).

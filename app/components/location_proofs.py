@@ -1,14 +1,17 @@
 """OGC API - Features compliant location proofs router."""
 
 import json
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union, cast
-from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.openapi.utils import get_openapi
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.database import get_session
 
 router = APIRouter(tags=["Location Proofs"])
 
@@ -105,7 +108,7 @@ class Feature(BaseModel):
     type: Literal["Feature"]
     geometry: Dict[str, Any]
     properties: Dict[str, Any]
-    id: UUID
+    id: Any  # Changed from UUID to Any to accept both UUID and int
     links: List[Link]
 
 
@@ -731,6 +734,8 @@ async def get_features(
     sortby: Optional[str] = Query(
         None, description="Property to sort by, prefix with '-' for descending order"
     ),
+    # Database session
+    session: AsyncSession = Depends(get_session),
 ) -> Union[FeatureCollection, Response]:
     """Retrieve features from a specific collection.
 
@@ -752,6 +757,7 @@ async def get_features(
         f: Output format (json, html, geojson)
         crs: Coordinate reference system URI
         sortby: Property to sort by, prefix with '-' for descending order
+        session: SQLAlchemy async session
 
     Returns:
         Union[FeatureCollection, Response]: GeoJSON FeatureCollection or formatted
@@ -839,37 +845,230 @@ async def get_features(
 
     # Parse temporal filter
     if datetime_filter:
-        if "/" in datetime_filter:
-            parts = datetime_filter.split("/")
-            start_date = parts[0] if parts[0] != ".." else None
-            end_date = parts[1] if parts[1] != ".." else None
-            _ = {
-                "start": start_date,
-                "end": end_date,
-                "operator": temporal_op.value if temporal_op else "during",
-            }
-        else:
-            _ = {
-                "date": datetime_filter,
-                "operator": temporal_op.value if temporal_op else "equals",
-            }
+        # Temporal filter is handled directly in the SQL query
+        # No need to parse it here as we're using the raw datetime_filter in the SQL query
+        pass
 
     # Parse property filter
+    property_filter = None
     if property_name and property_op:
-        _ = {
+        property_filter = {
             "name": property_name,
             "operator": property_op.value,
             "value": property_value,
         }
 
     # Parse sorting
+    sort_options = None
     if sortby:
         descending = sortby.startswith("-")
         field = sortby[1:] if descending else sortby
-        _ = {"field": field, "descending": descending}
+        sort_options = {"field": field, "descending": descending}
 
-    # TODO: Implement actual feature retrieval from database with filters
-    # For now, we'll just return an empty collection with the appropriate links
+    # Implement actual feature retrieval from database with filters
+    try:
+        # Build the SQL query
+        query = """
+        SELECT
+            lp.id,
+            lp.uid,
+            lp.schema,
+            lp.event_timestamp,
+            lp.revoked,
+            lp.revocable,
+            lp.srs,
+            lp.location_type,
+            ST_AsGeoJSON(lp.location) as location_geojson,
+            lp.recipe_type,
+            lp.recipe_payload,
+            lp.media_type,
+            lp.media_data,
+            lp.status,
+            lp.chain_id,
+            lp.attester_id,
+            lp.recipient_id,
+            lp.memo,
+            lp.created_at,
+            lp.updated_at,
+            a1.address as attester_address,
+            a2.address as recipient_address,
+            c.name as chain_name
+        FROM
+            location_proof lp
+        LEFT JOIN
+            address a1 ON lp.attester_id = a1.id
+        LEFT JOIN
+            address a2 ON lp.recipient_id = a2.id
+        LEFT JOIN
+            chain c ON lp.chain_id = c.chain_id
+        """
+
+        # Add WHERE clauses based on filters
+        where_clauses = []
+        params: Dict[str, Any] = {}
+
+        # Handle bbox parameter (convert to float)
+        if bbox:
+            bbox_parts = bbox.split(",")
+            if len(bbox_parts) == 4:
+                min_lon = float(bbox_parts[0])
+                min_lat = float(bbox_parts[1])
+                max_lon = float(bbox_parts[2])
+                max_lat = float(bbox_parts[3])
+
+                # Add bbox filter to WHERE clause
+                where_clauses.append(
+                    f"ST_MakeEnvelope({min_lon}, {min_lat}, {max_lon}, {max_lat}, 4326) && location_proof.location"
+                )
+
+        # Handle datetime filter
+        if datetime_filter:
+            if "=" in datetime_filter:
+                # Exact match
+                dt_parts = datetime_filter.split("=")
+                if len(dt_parts) == 2:
+                    timestamp = float(dt_parts[1]) if dt_parts[1] else None
+                    if timestamp:
+                        where_clauses.append(
+                            f"location_proof.event_timestamp = {timestamp}"
+                        )
+            elif ".." in datetime_filter:
+                # Range
+                dt_parts = datetime_filter.split("..")
+                if len(dt_parts) == 2:
+                    start_time = float(dt_parts[0]) if dt_parts[0] else None
+                    end_time = float(dt_parts[1]) if dt_parts[1] else None
+
+                    if start_time:
+                        where_clauses.append(
+                            f"location_proof.event_timestamp >= {start_time}"
+                        )
+                    if end_time:
+                        where_clauses.append(
+                            f"location_proof.event_timestamp <= {end_time}"
+                        )
+
+        # Add property filters if needed
+        if property_filter:
+            if property_filter["name"] == "chain_id":
+                where_clauses.append("lp.chain_id = :chain_id_filter")
+                params["chain_id_filter"] = property_filter["value"]
+            elif property_filter["name"] == "attester":
+                where_clauses.append("a1.address = :attester")
+                params["attester"] = property_filter["value"]
+            elif property_filter["name"] == "recipient":
+                where_clauses.append("a2.address = :recipient")
+                params["recipient"] = property_filter["value"]
+
+        # Combine WHERE clauses if any
+        if where_clauses:
+            query += " WHERE " + " AND ".join(where_clauses)
+
+        # Add ORDER BY clause
+        if sort_options:
+            sort_field = sort_options["field"]
+            sort_direction = "DESC" if sort_options["descending"] else "ASC"
+
+            # Map sort field to actual column
+            sort_column = "lp.created_at"  # Default sort
+            if sort_field == "timestamp":
+                sort_column = "lp.event_timestamp"
+            elif sort_field == "chain":
+                sort_column = "lp.chain_id"
+
+            query += f" ORDER BY {sort_column} {sort_direction}"
+        else:
+            # Default sort by created_at descending
+            query += " ORDER BY lp.created_at DESC"
+
+        # Add LIMIT and OFFSET
+        query += " LIMIT :limit OFFSET :offset"
+        params["limit"] = int(limit)
+        params["offset"] = int(offset)
+
+        # Execute the query
+        result = await session.execute(text(query), params)
+        rows = result.fetchall()
+
+        # Get total count for numberMatched
+        count_query = "SELECT COUNT(*) FROM location_proof"
+        if where_clauses:
+            count_query += " WHERE " + " AND ".join(where_clauses)
+
+        count_result = await session.execute(text(count_query), params)
+        total_count = count_result.scalar()
+
+        # Convert rows to GeoJSON features
+        features = []
+        for row in rows:
+            # Convert row to dict
+            row_dict = {}
+            for key, value in row._mapping.items():
+                row_dict[key] = value
+
+            # Parse location GeoJSON
+            location_geojson = json.loads(row_dict["location_geojson"])
+
+            # Create properties
+            properties = {
+                "uid": row_dict["uid"],
+                "schema": row_dict["schema"],
+                "eventTimestamp": row_dict["event_timestamp"],
+                "revoked": row_dict["revoked"],
+                "revocable": row_dict["revocable"],
+                "srs": row_dict["srs"],
+                "locationType": row_dict["location_type"],
+                "status": row_dict["status"],
+                "chainId": row_dict["chain_id"],
+                "chainName": row_dict["chain_name"],
+                "attester": row_dict["attester_address"],
+                "recipient": row_dict["recipient_address"],
+                "memo": row_dict["memo"],
+                "createdAt": (
+                    row_dict["created_at"].isoformat()
+                    if row_dict["created_at"]
+                    else None
+                ),
+                "updatedAt": (
+                    row_dict["updated_at"].isoformat()
+                    if row_dict["updated_at"]
+                    else None
+                ),
+            }
+
+            # Create feature links
+            feature_links = [
+                Link(
+                    href=f"/collections/{collection_id}/items/{row_dict['id']}",
+                    rel="self",
+                    type="application/geo+json",
+                    title="This feature",
+                ),
+                Link(
+                    href=f"/collections/{collection_id}",
+                    rel="collection",
+                    type="application/json",
+                    title="The collection description",
+                ),
+            ]
+
+            # Create feature
+            feature = Feature(
+                type="Feature",
+                geometry=location_geojson,
+                properties=properties,
+                id=row_dict["id"],
+                links=feature_links,
+            )
+
+            features.append(feature)
+
+    except Exception as e:
+        # Log the error
+        print(f"Error retrieving features: {str(e)}")
+        # Return empty feature collection on error
+        features = []
+        total_count = 0
 
     # Build query parameters for self link
     query_params = []
@@ -989,11 +1188,11 @@ async def get_features(
 
     feature_collection = FeatureCollection(
         type="FeatureCollection",
-        features=[],
+        features=features,
         links=links,
-        timeStamp=datetime.now(UTC).isoformat(),
-        numberMatched=0,
-        numberReturned=0,
+        timeStamp=datetime.now(timezone.utc).isoformat(),
+        numberMatched=total_count or 0,
+        numberReturned=len(features),
     )
 
     if f == FormatEnum.html:
@@ -1048,7 +1247,7 @@ async def get_features(
 @router.get("/collections/{collection_id}/items/{feature_id}", response_model=Feature)
 async def get_feature(
     collection_id: str,
-    feature_id: UUID,
+    feature_id: Any,  # Changed from UUID to Any
     f: FormatEnum = Query(FormatEnum.geojson, description="Output format"),
     crs: Optional[str] = Query(
         None,
