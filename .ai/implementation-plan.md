@@ -197,7 +197,17 @@ DO NOT move on to the next task until you have committed the current one!
   - • Ensure proper conversion of database rows to GeoJSON features
   - • Fix type handling for feature IDs to support integer IDs
 
-- [ ] **Task 6.2.1: Refine Location Proof ETL Process**
+- [ ] **Task 6.2.1: Implement Python SchemaEncoder for EAS Data Decoding**
+  - • Research and analyze the EAS SDK's SchemaEncoder implementation
+  - • Create a Python implementation of the SchemaEncoder in `app/services/schema_encoder.py`
+  - • Add functionality to fetch schema definitions from EAS GraphQL endpoints
+  - • Implement ABI encoding/decoding using the `eth-abi` package
+  - • Add support for special types like IPFS hashes and bytes32 strings
+  - • Modify the `extract_location_data` function to use the SchemaEncoder
+  - • Add comprehensive tests for the SchemaEncoder implementation
+  - • Update documentation with details about the EAS data format and decoding process
+
+- [ ] **Task 6.2.2: Refine Location Proof ETL Process**
   - • Improve memo field extraction and processing from EAS attestations
   - • Add support for media type and media data extraction and storage
   - • Implement recipe type and recipe payload processing

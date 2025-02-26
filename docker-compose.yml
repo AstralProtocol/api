@@ -26,7 +26,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: astral-api
-    command: bash -c "chmod +x /app/scripts/start.sh && /app/scripts/start.sh"
+    command: bash -c "chmod +x /app/scripts/container-start.sh && /app/scripts/container-start.sh"
     depends_on:
       db:
         condition: service_healthy

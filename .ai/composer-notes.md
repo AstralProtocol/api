@@ -190,3 +190,108 @@ The Astral API needs a robust, automated system for managing blockchain network 
 4. **Multi-Environment Support**: Support different chain configurations for development, staging, and production
 
 This system will significantly improve the developer experience by centralizing chain configuration and automating the process of adding new blockchain networks to the Astral API.
+
+## TODO: Attestation Revocation Handling
+
+We need to revisit the handling of attestation revocations in our ETL process. Currently, we check for the `revoked` flag in attestations, but we should also:
+
+1. Implement a mechanism to detect revocation events from EAS contracts
+2. Create a process to update existing location proofs when their attestations are revoked
+3. Emit appropriate events or notifications when revocations occur
+4. Consider how revocations affect the status of location proofs in our API responses
+5. Add tests specifically for the revocation flow
+
+This is important for maintaining data integrity, as revoked attestations should not be treated as valid location proofs. We should prioritize this in our next iteration of the ETL process improvements.
+
+## Location Data Processing Strategy
+
+The core value proposition of the Astral API is its ability to handle heterogeneous location data formats from blockchain attestations and serve them as standardized geospatial data. Our approach to location data processing includes:
+
+### Short-term Focus (Current Implementation)
+For the initial implementation, we're focusing on handling:
+1. Well-formed GeoJSON (Points, LineStrings, Polygons, and single Features)
+2. Raw coordinates in both [lon, lat] and [lat, lon] formats
+
+### Data Quality Assessment
+We'll implement a basic quality assessment system:
+- High quality: Standard format, parsed correctly
+- Medium quality: Required interpretation but likely correct
+- Low quality: Significantly malformed but best effort made
+
+### Storage Strategy
+1. Store original location data exactly as received (for reference and future reprocessing)
+2. Convert all geometries to WGS84 (EPSG:4326) for storage in PostGIS
+3. Use SRID (integer) instead of SRS (string) for better PostGIS compatibility
+4. Track whether data is a collection and how many features it contains
+
+### Complex Geometry Handling
+For FeatureCollections and multi-geometries:
+1. Store the primary geometry in the PostGIS column for efficient spatial queries
+2. Keep the complete original GeoJSON in a JSONB column
+3. Flag collections for special handling in API responses
+
+### Future Enhancements
+In future iterations, we plan to support:
+1. More location types (geohash, h3, w3w, etc.)
+2. More sophisticated coordinate order detection
+3. Better handling of malformed data
+4. Improved API responses for complex geometries
+
+This approach balances immediate needs with future extensibility, allowing us to start with the most common use cases while building a foundation for more complex scenarios.
+
+
+
+# Composer Notes: EAS Data Decoding Implementation
+
+## Progress Summary
+
+We've been working on the seed script for location proofs, which fetches attestations from the Ethereum Attestation Service (EAS) and stores them in our database. We've successfully implemented the basic functionality, but we're encountering an issue with decoding the attestation data.
+
+The attestation data is stored in a binary format with a "0x" prefix, indicating it's hex-encoded data that follows the Ethereum ABI encoding format. Our current implementation attempts to decode this as UTF-8, which fails because it's not valid UTF-8 data.
+
+## Current Approach
+
+Our current approach in `extract_location_data` function:
+
+1. Detects hex-encoded data (strings starting with "0x")
+2. Attempts to decode it as UTF-8 (which fails)
+3. Falls back to a default location (San Francisco coordinates)
+
+This approach works for testing but doesn't extract the actual location data from the attestations.
+
+## Proposed Solution
+
+After analyzing the EAS SDK's SchemaEncoder class, we understand that we need to:
+
+1. Fetch the schema definition for each attestation
+2. Use the schema to properly decode the hex-encoded data
+3. Extract the location data from the decoded attestation
+
+We'll implement a Python version of the SchemaEncoder that mimics the functionality of the TypeScript version in the EAS SDK.
+
+## Implementation Plan
+
+1. Create a new Python module `app/services/schema_encoder.py` that implements the SchemaEncoder
+2. Add a function to fetch schema definitions from the EAS GraphQL endpoint
+3. Modify the `extract_location_data` function to use the SchemaEncoder
+4. Test with real attestation data from various chains
+
+## Dependencies
+
+We'll need to add the following dependencies to our project:
+- `eth-abi`: For ABI encoding/decoding
+- `eth-utils`: For Ethereum-specific utilities
+
+## Timeline
+
+- Day 1: Implement the basic SchemaEncoder functionality
+- Day 2: Integrate with the seed script and test with real data
+- Day 3: Refine and optimize the implementation
+
+## Risks and Mitigations
+
+- **Risk**: Schema definitions might not be easily accessible
+  - **Mitigation**: Cache schema definitions locally or hardcode common schemas
+
+- **Risk**: ABI decoding might be complex for certain types
+  - **Mitigation**: Start with basic types and add support for complex types incrementally

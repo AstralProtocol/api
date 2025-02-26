@@ -1,56 +1,46 @@
 #!/bin/bash
+# Start script for the Astral API development environment
+
+# Exit on error
 set -e
 
-# Function to check if PostgreSQL is ready
-function postgres_ready() {
-  python << END
-import sys
-import asyncpg
-import os
-import asyncio
+# Print commands
+set -x
 
-async def check_db():
-    try:
-        # Extract connection details from DATABASE_URL
-        db_url = os.environ.get("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@db:5432/astral")
-        # Convert SQLAlchemy URL to asyncpg format
-        db_url = db_url.replace("postgresql+asyncpg://", "postgresql://")
-
-        conn = await asyncpg.connect(db_url)
-        await conn.close()
-        return True
-    except Exception as e:
-        print(f"Database connection error: {e}")
-        return False
-
-if asyncio.run(check_db()):
-    sys.exit(0)
-else:
-    sys.exit(1)
-END
-}
-
-# Wait for PostgreSQL to be ready
-echo "Waiting for PostgreSQL..."
-until postgres_ready; do
-  echo "PostgreSQL is unavailable - sleeping"
-  sleep 1
-done
-echo "PostgreSQL is up - continuing..."
-
-# Run database migrations
-echo "Running database migrations..."
-alembic upgrade head
-
-# Validate database schema
-echo "Validating database schema..."
-python /app/scripts/validate_db.py
-if [ $? -ne 0 ]; then
-  echo "Database schema validation failed! Exiting..."
+# Check if Docker is running
+if ! docker info > /dev/null 2>&1; then
+  echo "Docker is not running. Please start Docker and try again."
   exit 1
 fi
-echo "Database schema validation successful!"
 
-# Start the FastAPI application
-echo "Starting FastAPI application..."
-exec uvicorn app.main:app --host ${HOST:-0.0.0.0} --port ${PORT:-8000} --reload
+# Build and start the containers
+echo "Starting development environment..."
+docker-compose up -d
+
+# Wait for the database to be ready
+echo "Waiting for database to be ready..."
+docker-compose exec -T db pg_isready -U postgres -d astral -t 30
+
+# Run migrations if needed
+echo "Running database migrations..."
+docker-compose exec -T api alembic upgrade head
+
+# Seed the database with chains
+echo "Seeding chains..."
+docker-compose exec -T api python scripts/seed_chains.py
+
+# Seed the database with location proofs (optional)
+if [ "$1" == "--with-proofs" ]; then
+  echo "Seeding location proofs..."
+  docker-compose exec -T api python scripts/seed_location_proofs.py --limit 10
+fi
+
+echo "Development environment is ready!"
+echo "API is available at http://localhost:8000"
+echo "API documentation is available at http://localhost:8000/docs"
+
+# Show logs
+if [ "$1" == "--logs" ] || [ "$2" == "--logs" ]; then
+  echo "Showing logs..."
+  docker-compose logs -f api
+fi

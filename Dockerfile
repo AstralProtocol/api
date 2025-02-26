@@ -43,6 +43,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
+# Install psycopg2-binary
+RUN pip install psycopg2-binary
+
 # Create a non-root user
 RUN useradd -m -s /bin/bash appuser
 
