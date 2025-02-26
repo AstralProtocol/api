@@ -117,7 +117,7 @@ DO NOT move on to the next task until you have committed the current one!
 
 ## 5. Dockerization & Local Development Environment
 
-- [ ] **Task 5.1: Docker Configuration for API**
+- [x] **Task 5.1: Docker Configuration for API**
   - • Create a `Dockerfile` for the FastAPI application with proper multi-stage build:
     - Use Python 3.11 as the base image
     - Install system dependencies (including PostGIS requirements)
@@ -130,7 +130,7 @@ DO NOT move on to the next task until you have committed the current one!
     - Set appropriate permissions and user context
     - Configure proper environment variables
 
-- [ ] **Task 5.2: Docker Compose Setup**
+- [x] **Task 5.2: Docker Compose Setup**
   - • Create a `docker-compose.yml` file that includes:
     - PostgreSQL with PostGIS extension
     - FastAPI application service
@@ -146,7 +146,7 @@ DO NOT move on to the next task until you have committed the current one!
     - Initial data seeding for testing
     - Alembic migration integration
 
-- [ ] **Task 5.3: Development Workflow Integration**
+- [x] **Task 5.3: Development Workflow Integration**
   - • Create helper scripts for common development tasks:
     - Database reset and migration scripts
     - Test execution within containers
