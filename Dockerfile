@@ -65,6 +65,10 @@ RUN mkdir -p /app/scripts
 COPY scripts/start.sh /app/scripts/
 RUN chmod +x /app/scripts/start.sh
 
+# Make sure all scripts in the scripts directory are executable
+RUN find /app/scripts -type f -name "*.sh" -exec chmod +x {} \;
+RUN find /app/scripts -type f -name "*.py" -exec chmod +x {} \;
+
 # Switch to non-root user
 USER appuser
 
@@ -74,6 +78,3 @@ EXPOSE 8000
 # Health check
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
-
-# Set the entrypoint
-ENTRYPOINT ["/app/scripts/start.sh"]

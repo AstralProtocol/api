@@ -42,6 +42,15 @@ echo "PostgreSQL is up - continuing..."
 echo "Running database migrations..."
 alembic upgrade head
 
+# Validate database schema
+echo "Validating database schema..."
+python /app/scripts/validate_db.py
+if [ $? -ne 0 ]; then
+  echo "Database schema validation failed! Exiting..."
+  exit 1
+fi
+echo "Database schema validation successful!"
+
 # Start the FastAPI application
 echo "Starting FastAPI application..."
 exec uvicorn app.main:app --host ${HOST:-0.0.0.0} --port ${PORT:-8000} --reload
