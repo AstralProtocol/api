@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgis/postgis:15-3.3
+    container_name: astral-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: astral
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - astral-network
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: astral-api
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/astral
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-here}
+      - DEBUG=${DEBUG:-True}
+      - HOST=0.0.0.0
+      - PORT=8000
+      - EAS_SCHEMA_UID=${EAS_SCHEMA_UID:-0xba4171c92572b1e4f241d044c32cdf083be9fd946b8766977558ca6378c824e2}
+      - EAS_CELO_GRAPHQL_URL=${EAS_CELO_GRAPHQL_URL:-https://celo.easscan.org/graphql}
+      - EAS_ARBITRUM_GRAPHQL_URL=${EAS_ARBITRUM_GRAPHQL_URL:-https://arbitrum.easscan.org/graphql}
+      - EAS_SEPOLIA_GRAPHQL_URL=${EAS_SEPOLIA_GRAPHQL_URL:-https://sepolia.easscan.org/graphql}
+      - EAS_BASE_GRAPHQL_URL=${EAS_BASE_GRAPHQL_URL:-https://base.easscan.org/graphql}
+      - INFURA_API_KEY=${INFURA_API_KEY:-799a48033afc4389a1576386aee584dd}
+      - DEFAULT_CHAIN=${DEFAULT_CHAIN:-sepolia}
+      - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
+      - EAS_POLLING_INTERVAL=${EAS_POLLING_INTERVAL:-60}
+    volumes:
+      - ./app:/app/app
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - astral-network
+
+networks:
+  astral-network:
+    driver: bridge
+
+volumes:
+  postgres_data:

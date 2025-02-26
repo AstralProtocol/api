@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 from shapely import wkt
 from sqlalchemy import BigInteger, Boolean, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import TypeDecorator
 
@@ -37,6 +38,13 @@ class Geometry(TypeDecorator):
 
 class LocationProof(Base):
     """LocationProof model for storing attestation data."""
+
+    # Set explicit table name to match migration
+    @declared_attr.directive
+    @classmethod
+    def __tablename__(cls) -> str:
+        """Return the table name."""
+        return "location_proof"
 
     # Override id from Base to add index and docstring
     id: Mapped[int] = mapped_column(

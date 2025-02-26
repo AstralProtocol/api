@@ -51,8 +51,43 @@ class EASIntegrationService:
 
         async for session in self.get_session():
             # Get all chains with EAS endpoints
-            chains = await session.execute(select(Chain))
-            for chain in chains.scalars().all():
+            # Explicitly select only the columns we need, excluding 'id'
+            query = select(
+                Chain.chain_id,
+                Chain.name,
+                Chain.chain,
+                Chain.rpc,
+                Chain.faucets,
+                Chain.native_currency,
+                Chain.features,
+                Chain.info_url,
+                Chain.short_name,
+                Chain.network_id,
+                Chain.icon,
+                Chain.explorers,
+                Chain.created_at,
+                Chain.updated_at,
+            )
+            chains_result = await session.execute(query)
+            chains_data = chains_result.all()
+
+            for chain_data in chains_data:
+                # Create a Chain object from the result
+                chain = Chain(
+                    chain_id=chain_data.chain_id,
+                    name=chain_data.name,
+                    chain=chain_data.chain,
+                    rpc=chain_data.rpc,
+                    faucets=chain_data.faucets,
+                    native_currency=chain_data.native_currency,
+                    features=chain_data.features,
+                    info_url=chain_data.info_url,
+                    short_name=chain_data.short_name,
+                    network_id=chain_data.network_id,
+                    icon=chain_data.icon,
+                    explorers=chain_data.explorers,
+                )
+
                 # Check if chain has EAS endpoint in its features
                 eas_endpoint = self._get_eas_endpoint(chain)
                 if not eas_endpoint:

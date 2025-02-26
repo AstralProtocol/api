@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -15,22 +16,27 @@ if TYPE_CHECKING:
 class Chain(Base):
     """Chain model for storing blockchain network metadata."""
 
-    # Use chain_id as primary key
-    id: Mapped[int] = mapped_column(
-        primary_key=True,
-        autoincrement=True,
-        index=True,
-        doc="Unique identifier for the chain record",
-    )
+    # Override __tablename__ to match migration
+    @declared_attr.directive
+    @classmethod
+    def __tablename__(cls) -> str:
+        """Return the table name."""
+        return "chain"
 
-    # Chain-specific columns
+    # Override id with a non-primary key version
+    # This effectively disables the id column from Base
+    # Use type: ignore to bypass the type checker for this special case
+    id: Mapped[int] = mapped_column(primary_key=False, nullable=True)  # type: ignore
+
+    # Use chain_id as primary key instead of id
     chain_id: Mapped[int] = mapped_column(
         Integer,
-        unique=True,
-        nullable=False,
+        primary_key=True,
         index=True,
         doc="The chain ID (e.g. 1 for Ethereum mainnet)",
     )
+
+    # Chain-specific columns
     name: Mapped[str] = mapped_column(
         String,
         nullable=False,
