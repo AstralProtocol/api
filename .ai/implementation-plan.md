@@ -207,7 +207,7 @@ DO NOT move on to the next task until you have committed the current one!
   - • Add comprehensive tests for the SchemaEncoder implementation
   - • Update documentation with details about the EAS data format and decoding process
 
-- [ ] **Task 6.2.2: Update Database Schema for Chain Model**
+- [x] **Task 6.2.2: Update Database Schema for Chain Model**
   - • Review current schema and identify all places where chain_id is used as primary key
   - • Update Chain model to use id as primary key and chain_id as unique field
   - • Modify migration file to reflect new schema changes
@@ -219,13 +219,16 @@ DO NOT move on to the next task until you have committed the current one!
   - • Test all chain-related functionality end-to-end
 
 - [ ] **Task 6.2.3: Refine Location Proof ETL Process**
-  - • Improve memo field extraction and processing from EAS attestations
-  - • Add support for media type and media data extraction and storage
-  - • Implement recipe type and recipe payload processing
-  - • Maintain the location type string as a unique identifier
+  - • Fix SyncState table creation and schema
+  - • Ensure proper foreign key relationships between LocationProof and Chain tables
+  - • Implement proper error handling for database constraints
+  - • Store decoded location proofs with correct chain references
   - • Add validation for location proof data integrity
   - • Enhance error handling and logging during ETL process
   - • Create a mechanism to handle updates to existing location proofs
+  - • Add comprehensive logging for debugging and monitoring
+  - • Test end-to-end location proof creation process
+  - • Document the ETL process and data flow
 
 - [ ] **Task 6.3: User Account Seeding**
   - • Create a script to generate test user accounts with different roles and permissions

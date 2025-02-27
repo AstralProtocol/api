@@ -4,7 +4,9 @@ This module provides functionality to interact with the Ethereum Attestation Ser
 via its GraphQL API, fetching and processing attestations for location proofs.
 """
 
+import json
 import logging
+from pathlib import Path
 from typing import Any, Dict, List, Optional, cast
 
 from gql import Client, gql
@@ -22,6 +24,11 @@ from app.services.schema_encoder import SchemaEncoder
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+# Load EAS config
+config_path = Path(__file__).parent.parent.parent / "config" / "EAS-config.json"
+with open(config_path) as f:
+    EAS_CONFIG = json.load(f)
 
 
 class EASIntegrationService:
@@ -82,9 +89,9 @@ class EASIntegrationService:
                     self.clients[chain.chain_id] = client
                     logger.info(f"Created client for chain {chain.chain_id}")
 
-                    # Get schema UID for this chain
-                    schema_uid = await self._get_schema_uid(chain.chain_id)
-                    logger.info(f"Got schema UID: {schema_uid}")
+                    # Get schema UID from config
+                    schema_uid = self._get_schema_uid_from_config(chain.chain_id)
+                    logger.info(f"Got schema UID from config: {schema_uid}")
 
                     if not schema_uid:
                         logger.warning(
@@ -306,6 +313,15 @@ class EASIntegrationService:
         """
         count = 0
 
+        # Get the chain's ID from its chain_id
+        chain_result = await session.execute(
+            select(Chain).where(Chain.chain_id == chain_id)
+        )
+        chain = chain_result.scalars().first()
+        if not chain:
+            logger.error(f"Chain with chain_id {chain_id} not found")
+            return 0
+
         for attestation in attestations:
             try:
                 # Parse attestation data
@@ -326,7 +342,7 @@ class EASIntegrationService:
 
                 # Create location proof
                 location_proof = LocationProof(
-                    chain_id=chain_id,
+                    chain_id=chain.id,  # Use chain.id instead of chain_id
                     attester=attester_address,
                     recipient=recipient_address,
                     **parsed_data,
@@ -410,38 +426,22 @@ class EASIntegrationService:
 
         return addr
 
-    async def _get_schema_uid(self, chain_id: int) -> Optional[str]:
-        """Get the schema UID for a specific chain.
+    def _get_schema_uid_from_config(self, chain_id: int) -> Optional[str]:
+        """Get the schema UID for a chain from the EAS config file.
 
         Args:
-            chain_id: The ID of the chain to get the schema UID for.
+            chain_id: Chain ID to get schema UID for
 
         Returns:
-            The schema UID if found, None otherwise.
+            Schema UID if found in config, None otherwise
         """
-        try:
-            query = gql(
-                """
-                query GetSchemas {
-                    schemas(where: {
-                        name: "AstralAttestation"
-                    }) {
-                        uid
-                    }
-                }
-                """
-            )
-
-            result = await self.clients[chain_id].execute_async(query)
-            schemas = result.get("schemas", [])
-
-            if schemas and len(schemas) > 0:
-                uid = schemas[0].get("uid")
-                return cast(Optional[str], uid)
+        chain_config = EAS_CONFIG.get("chains", {}).get(str(chain_id))
+        if not chain_config:
             return None
-        except Exception as e:
-            logger.error(f"Error getting schema UID for chain {chain_id}: {e}")
+        schema_uid = chain_config.get("schemaUID")
+        if not isinstance(schema_uid, str):
             return None
+        return schema_uid if schema_uid else None
 
     def _get_eas_endpoint(self, chain: Chain) -> Optional[str]:
         """Get the EAS GraphQL endpoint for a chain.
@@ -482,8 +482,9 @@ class EASIntegrationService:
             return None
 
         endpoint = eas_feature.get("url") or eas_feature.get("graphql")
-        logger.info(f"Found endpoint: {endpoint}")
-        return cast(Optional[str], endpoint)
+        if not isinstance(endpoint, str):
+            return None
+        return endpoint if endpoint else None
 
     def _create_graphql_client(self, endpoint: str) -> Client:
         """Create a GraphQL client for the given endpoint.

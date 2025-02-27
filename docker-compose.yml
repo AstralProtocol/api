@@ -50,6 +50,7 @@ services:
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
       - ./scripts:/app/scripts
+      - ./EAS-config.json:/app/EAS-config.json
     ports:
       - "8000:8000"
     healthcheck:

@@ -19,15 +19,14 @@ import os
 import sys
 import time
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple
 
 import asyncpg
 import requests
-from shapely.geometry import Point, Polygon, shape
-from shapely.wkt import loads as wkt_loads
+from shapely import wkt
+from shapely.geometry import shape
 
-# Add the parent directory to the Python path so we can import from app
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from app.services.schema_encoder import SchemaEncoder
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -67,12 +66,18 @@ query GetAttestations($schemaId: String!, $take: Int!) {
 
 
 def load_eas_config() -> Dict[str, Any]:
-    """Load EAS configuration from the config file."""
+    """Load EAS configuration from the config file.
+
+    Returns:
+        Dict containing the EAS configuration
+    """
     try:
         with open(EAS_CONFIG_PATH, "r") as f:
-            config: Dict[str, Any] = json.load(f)
+            config = json.load(f)
+            if not isinstance(config, dict):
+                raise ValueError("EAS config must be a dictionary")
             return config
-    except (FileNotFoundError, json.JSONDecodeError) as e:
+    except (FileNotFoundError, json.JSONDecodeError, ValueError) as e:
         logger.error("Error loading EAS config: %s", e)
         sys.exit(1)
 
@@ -96,10 +101,11 @@ async def get_chain_info(
     if not row:
         return None
 
-    return dict(row)
+    result: Dict[str, Any] = dict(row)
+    return result
 
 
-async def get_eas_endpoint(chain_info: Dict[str, Any]) -> Optional[str]:
+def get_eas_endpoint(chain_info: Dict[str, Any]) -> Optional[str]:
     """Extract EAS GraphQL endpoint from chain features.
 
     Args:
@@ -114,22 +120,36 @@ async def get_eas_endpoint(chain_info: Dict[str, Any]) -> Optional[str]:
     # Parse the JSON string if it's a string
     if isinstance(features, str):
         try:
-            features = json.loads(features)
+            features_dict = json.loads(features)
+            if not isinstance(features_dict, list):
+                logger.error("Features must be a list")
+                return None
+            features = features_dict
         except json.JSONDecodeError:
-            logger.error(f"Failed to parse features JSON: {features}")
+            logger.error("Failed to parse features JSON: %s", features)
             return None
 
     # Look for EAS feature
     for feature in features:
         if isinstance(feature, dict) and feature.get("name") == "EAS":
-            endpoint: Optional[str] = feature.get("url")
-            return endpoint
+            endpoint = feature.get("url")
+            if isinstance(endpoint, str):
+                return endpoint
+            logger.error("EAS endpoint URL must be a string")
+            return None
 
     return None
 
 
-async def get_schema_id(conn: asyncpg.Connection, chain_id: int) -> str:
-    """Get the schema ID for a chain."""
+def get_schema_id(chain_id: int) -> str:
+    """Get the schema ID for a chain.
+
+    Args:
+        chain_id: Chain ID to get schema for
+
+    Returns:
+        Schema ID string or empty string if not found
+    """
     try:
         eas_config = load_eas_config()
         chain_config = eas_config.get("chains", {}).get(str(chain_id))
@@ -138,25 +158,33 @@ async def get_schema_id(conn: asyncpg.Connection, chain_id: int) -> str:
             return ""
 
         schema_id = chain_config.get("schemaUID", "")
-        if not schema_id:
+        if not isinstance(schema_id, str):
             logging.warning("No schema UID found in EAS config for chain %d", chain_id)
             return ""
 
-        return schema_id
+        return schema_id if schema_id else ""
     except Exception as e:
         logging.error("Error getting schema ID for chain %d: %s", chain_id, str(e))
         return ""
 
 
 async def get_address_id(conn: asyncpg.Connection, address: str) -> int:
-    """Get or create an address record in the database."""
+    """Get or create an address record in the database.
+
+    Args:
+        conn: Database connection
+        address: Ethereum address
+
+    Returns:
+        Address ID from database
+    """
     try:
         normalized_address = address.lower()
         row = await conn.fetchrow(
             "SELECT id FROM address WHERE address = $1", normalized_address
         )
 
-        if row:
+        if row and row["id"] is not None:
             return int(row["id"])
 
         user_row = await conn.fetchrow('SELECT id FROM "user" WHERE id = 1')
@@ -170,8 +198,9 @@ async def get_address_id(conn: asyncpg.Connection, address: str) -> int:
 
         new_id = await conn.fetchval(
             """
-            INSERT INTO address (user_id, address, label, is_verified, created_at, updated_at)
-            VALUES (1, $1, 'ETH Address', false, NOW(), NOW())
+            INSERT INTO address (
+                user_id, address, label, is_verified, created_at, updated_at
+            ) VALUES (1, $1, 'ETH Address', false, NOW(), NOW())
             RETURNING id
             """,
             normalized_address,
@@ -185,9 +214,11 @@ async def get_address_id(conn: asyncpg.Connection, address: str) -> int:
 def extract_location_data(attestation: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Extract location data from an attestation.
 
-    Supports multiple location formats including:
-    - GeoJSON features (Point, LineString, Polygon)
-    - Raw coordinates (lat,lng or lng,lat)
+    Args:
+        attestation: Attestation data from EAS
+
+    Returns:
+        Dict containing the extracted location data or None if extraction fails
     """
     try:
         data = attestation.get("data", "")
@@ -205,157 +236,69 @@ def extract_location_data(attestation: Dict[str, Any]) -> Optional[Dict[str, Any
             logging.warning("Attestation %s has no data", attestation_id)
             return None
 
-        # Try to decode the attestation data
+        # Convert hex string to bytes
+        if isinstance(data, str) and data.startswith("0x"):
+            data = bytes.fromhex(data[2:])
+        elif not isinstance(data, bytes):
+            logging.error(f"Invalid data format: {type(data)}")
+            return None
+
+        # Use SchemaEncoder to decode the data
         try:
-            # The data field might be hex-encoded
-            if isinstance(data, str) and data.startswith("0x"):
-                # Remove the 0x prefix
-                hex_data = data[2:]
-                print(f"Detected hex data: 0x{hex_data[:20]}...")
-
-                # Try to decode as UTF-8 JSON
-                try:
-                    decoded_data = bytes.fromhex(hex_data).decode("utf-8")
-                    print(
-                        f"Successfully decoded hex data as UTF-8: {decoded_data[:100]}..."
-                    )
-                    data_json = json.loads(decoded_data)
-                    print(f"Successfully parsed JSON from decoded data")
-                except UnicodeDecodeError as e:
-                    print(f"Failed to decode hex data as UTF-8: {e}")
-                    # If UTF-8 decoding fails, try to parse the binary data directly
-                    try:
-                        # This is a fallback for binary data that's not UTF-8
-                        # Try to extract location data from binary
-                        print(f"Attempting binary parsing for attestation")
-                        logging.info(
-                            f"Attempting binary parsing for attestation {attestation_id}"
-                        )
-
-                        # For now, create a dummy location point
-                        # In a real implementation, we would parse the binary format
-                        print("Using fallback location (San Francisco)")
-                        return {
-                            "latitude": 37.7749,
-                            "longitude": -122.4194,
-                            "location_type": "point",
-                            "location_wkt": "POINT(-122.4194 37.7749)",
-                            "accuracy": 10.0,
-                            "source": "eas",
-                            "timestamp": int(attestation.get("time", time.time())),
-                            "memo": "Binary data - could not decode",
-                            "media_type": [],
-                            "media_data": [],
-                            "recipe_type": [],
-                            "recipe_payload": {},
-                        }
-                    except Exception as e:
-                        print(f"Failed to parse binary data: {e}")
-                        logging.error(f"Failed to parse binary data: {e}")
-                        return None
-                except json.JSONDecodeError as e:
-                    print(f"Failed to parse JSON from decoded data: {e}")
-                    logging.debug(f"Failed to parse JSON from decoded data: {e}")
-                    return None
-            elif isinstance(data, str):
-                # Try to parse as JSON directly
-                print("Attempting to parse data as JSON directly")
-                data_json = json.loads(data)
-                print("Successfully parsed data as JSON")
-            else:
-                # Assume it's already a dict
-                print("Data is already a dict, using as-is")
-                data_json = data
-        except (json.JSONDecodeError, ValueError) as e:
+            decoded_data = SchemaEncoder.decode_data(data)
+            SchemaEncoder.validate_decoded_data(decoded_data)
+            print(f"Successfully decoded attestation data: {decoded_data}")
+        except Exception as e:
             print(f"Failed to decode attestation data: {e}")
             logging.error(f"Failed to decode attestation data: {e}")
             return None
 
-        # Print the decoded JSON for debugging
-        print(
-            f"Decoded JSON keys: {list(data_json.keys()) if isinstance(data_json, dict) else 'Not a dict'}"
-        )
-
-        # Extract location data from the decoded JSON
-        location_data = data_json.get("location")
+        # Process the location data based on its format
+        location_data = decoded_data.get("location")
         if not location_data:
             print("No location field in attestation")
-            logging.warning(f"No location field in attestation {attestation_id}")
+            logging.warning("No location field in attestation %s", attestation_id)
             return None
 
         print(f"Extracted location data: {location_data}")
 
-        # Get location type (default to "point" if not specified)
-        location_type = data_json.get("locationType", "point")
+        # Get location type from decoded data
+        location_type = decoded_data.get("locationType", "point")
         print(f"Location type: {location_type}")
 
-        # Process the location data based on its format
-        wkt, spatial_type = process_location_to_wkt(location_data, location_type)
-        if not wkt:
+        # Process the location data to WKT format
+        wkt_str, spatial_type = process_location_to_wkt(location_data, location_type)
+        if not wkt_str:
             print("Could not process location data to WKT")
-            logging.warning(
-                f"Could not process location data in attestation {attestation_id}"
-            )
+            msg = "Could not process location data in attestation"
+            logging.warning(f"{msg} %s", attestation_id)
             return None
 
-        print(f"Processed location to WKT: {wkt}, type: {spatial_type}")
+        print(f"Processed location to WKT: {wkt_str}, type: {spatial_type}")
         print(f"=== END PROCESSING ATTESTATION {attestation_id} ===\n")
-
-        # Extract other fields
-        memo = data_json.get("memo", "")
-
-        # Extract media type and data
-        media_type = data_json.get("mediaType", [])
-        media_data = data_json.get("mediaData", [])
-
-        # Extract recipe type and payload
-        recipe_type = data_json.get("recipeType", [])
-        recipe_payload_raw = data_json.get("recipePayload", [])
-
-        # Process recipe payload
-        recipe_payload = {}
-        if recipe_type and recipe_payload_raw:
-            for i, rtype in enumerate(recipe_type):
-                if i < len(recipe_payload_raw):
-                    try:
-                        # Recipe payload might be hex-encoded
-                        if isinstance(
-                            recipe_payload_raw[i], str
-                        ) and recipe_payload_raw[i].startswith("0x"):
-                            payload_bytes = bytes.fromhex(recipe_payload_raw[i][2:])
-                            try:
-                                # Try to decode as JSON
-                                payload_str = payload_bytes.decode("utf-8")
-                                payload = json.loads(payload_str)
-                            except (json.JSONDecodeError, UnicodeDecodeError):
-                                # If not JSON, store as hex
-                                payload = recipe_payload_raw[i]
-                        else:
-                            payload = recipe_payload_raw[i]
-
-                        recipe_payload[rtype] = payload
-                    except Exception as e:
-                        logging.error(
-                            f"Failed to process recipe payload for type {rtype}: {e}"
-                        )
-                        recipe_payload[rtype] = recipe_payload_raw[i]
 
         # Return the extracted data
         return {
             "latitude": None,  # Will be set by caller if needed for legacy code
             "longitude": None,  # Will be set by caller if needed for legacy code
-            "location_type": spatial_type,  # Use the detected spatial type
-            "location_wkt": wkt,  # Store the WKT representation
-            "accuracy": data_json.get("accuracy", 10.0),
+            "location_type": spatial_type,
+            "location_wkt": wkt_str,
+            "accuracy": 10.0,  # Default accuracy since it's not in our schema
             "source": "eas",
             "timestamp": int(
-                data_json.get("eventTimestamp", attestation.get("time", time.time()))
+                decoded_data.get("eventTimestamp", attestation.get("time", time.time()))
             ),
-            "memo": memo,
-            "media_type": media_type,
-            "media_data": media_data,
-            "recipe_type": recipe_type,
-            "recipe_payload": recipe_payload,
+            "memo": decoded_data.get("memo", ""),
+            "media_type": decoded_data.get("mediaType", []),
+            "media_data": decoded_data.get("mediaData", []),
+            "recipe_type": decoded_data.get("recipeType", []),
+            "recipe_payload": {
+                rtype: payload
+                for rtype, payload in zip(
+                    decoded_data.get("recipeType", []),
+                    decoded_data.get("recipePayload", []),
+                )
+            },
         }
     except Exception as e:
         print(f"Error extracting location data: {e}")
@@ -363,9 +306,7 @@ def extract_location_data(attestation: Dict[str, Any]) -> Optional[Dict[str, Any
         return None
 
 
-def process_location_to_wkt(
-    location_data: Any, location_type: str
-) -> Tuple[Optional[str], str]:
+def process_location_to_wkt(location_data: Any, location_type: str) -> Tuple[str, str]:
     """Process location data to WKT format.
 
     Args:
@@ -373,7 +314,8 @@ def process_location_to_wkt(
         location_type: Location type hint
 
     Returns:
-        Tuple of (WKT string, spatial type) or (None, original type) if processing fails
+        Tuple of (WKT string, spatial type).
+        If processing fails, returns ("", original type)
     """
     try:
         # Try to process as GeoJSON
@@ -381,18 +323,19 @@ def process_location_to_wkt(
             return process_geojson_to_wkt(location_data)
 
         # Try to process as WKT string
-        if isinstance(location_data, str) and any(
-            x in location_data.upper() for x in ["POINT", "LINESTRING", "POLYGON"]
-        ):
+        wkt_types = ["POINT", "LINESTRING", "POLYGON"]
+        is_wkt = False
+        if isinstance(location_data, str):
+            is_wkt = any(x in location_data.upper() for x in wkt_types)
+
+        if is_wkt:
             # It's already WKT, just validate it
             try:
-                from shapely import wkt
-
-                geom = wkt.loads(location_data)
-                return location_data, geom.geom_type.lower()
+                geom = wkt.loads(str(location_data))
+                return str(location_data), str(geom.geom_type.lower())
             except Exception as e:
-                logging.error(f"Invalid WKT string: {e}")
-                return None, location_type
+                logging.error("Invalid WKT string: %s", str(e))
+                return "", location_type
 
         # Try to process as raw coordinates
         if isinstance(location_data, str) and "," in location_data:
@@ -413,60 +356,60 @@ def process_location_to_wkt(
                 pass
 
         # Fallback: couldn't process the location data
-        logging.warning(f"Unrecognized location data format: {location_data}")
-        return None, location_type
+        msg = f"Unrecognized location data format: {str(location_data)}"
+        logging.warning(msg)
+        return "", location_type
 
     except Exception as e:
-        logging.error(f"Error processing location to WKT: {e}")
-        return None, location_type
+        msg = f"Error processing location to WKT: {str(e)}"
+        logging.error(msg)
+        return "", location_type
 
 
-def process_geojson_to_wkt(geojson_data: Dict[str, Any]) -> Tuple[Optional[str], str]:
+def process_geojson_to_wkt(geojson_data: Dict[str, Any]) -> Tuple[str, str]:
     """Convert GeoJSON to WKT.
 
     Args:
         geojson_data: GeoJSON data
 
     Returns:
-        Tuple of (WKT string, spatial type) or (None, "unknown") if processing fails
+        Tuple of (WKT string, spatial type).
+        If processing fails, returns ("", "unknown")
     """
     try:
-        # Import shapely for GeoJSON processing
-        from shapely.geometry import mapping, shape
-
         # Handle different GeoJSON types
         if "type" not in geojson_data:
             logging.warning("GeoJSON missing 'type' field")
-            return None, "unknown"
+            return "", "unknown"
 
-        geojson_type = geojson_data["type"]
+        geojson_type = str(geojson_data["type"])
 
         # Handle Feature
         if geojson_type == "Feature":
             if "geometry" not in geojson_data:
                 logging.warning("GeoJSON Feature missing 'geometry'")
-                return None, "unknown"
+                return "", "unknown"
 
             geometry = geojson_data["geometry"]
             geom = shape(geometry)
-            return geom.wkt, geom.geom_type.lower()
+            return str(geom.wkt), str(geom.geom_type.lower())
 
         # Handle FeatureCollection
         elif geojson_type == "FeatureCollection":
             features = geojson_data.get("features", [])
             if not features:
                 logging.warning("Empty FeatureCollection")
-                return None, "unknown"
+                return "", "unknown"
 
             # Use the first feature for now
             first_feature = features[0]
             if "geometry" not in first_feature:
                 logging.warning("First feature missing 'geometry'")
-                return None, "unknown"
+                return "", "unknown"
 
             geometry = first_feature["geometry"]
             geom = shape(geometry)
-            return geom.wkt, f"collection_{geom.geom_type.lower()}"
+            return str(geom.wkt), f"collection_{str(geom.geom_type.lower())}"
 
         # Handle direct geometry
         elif geojson_type in [
@@ -478,39 +421,39 @@ def process_geojson_to_wkt(geojson_data: Dict[str, Any]) -> Tuple[Optional[str],
             "MultiPolygon",
         ]:
             geom = shape(geojson_data)
-            return geom.wkt, geojson_type.lower()
+            return str(geom.wkt), str(geojson_type.lower())
 
         else:
-            logging.warning(f"Unsupported GeoJSON type: {geojson_type}")
-            return None, "unknown"
+            logging.warning("Unsupported GeoJSON type: %s", geojson_type)
+            return "", "unknown"
 
     except Exception as e:
-        logging.error(f"Error processing GeoJSON: {e}")
-        return None, "unknown"
+        logging.error("Error processing GeoJSON: %s", str(e))
+        return "", "unknown"
 
 
-def process_raw_coordinates_to_wkt(coord_string: str) -> Tuple[Optional[str], str]:
+def process_raw_coordinates_to_wkt(coord_string: str) -> Tuple[str, str]:
     """Convert raw coordinate string to WKT.
 
     Args:
         coord_string: Coordinate string (e.g. "lat,lng" or "lng,lat")
 
     Returns:
-        Tuple of (WKT string, spatial type) or (None, "point") if processing fails
+        Tuple of (WKT string, spatial type). If processing fails, returns ("", "point")
     """
     try:
         # Split the string
         parts = coord_string.split(",", 1)
         if len(parts) != 2:
-            logging.warning(f"Invalid coordinate format: {coord_string}")
-            return None, "point"
+            logging.warning("Invalid coordinate format: %s", coord_string)
+            return "", "point"
 
         # Try to parse as numbers
         try:
             a, b = float(parts[0].strip()), float(parts[1].strip())
         except ValueError:
-            logging.warning(f"Could not parse coordinates as floats: {coord_string}")
-            return None, "point"
+            logging.warning("Could not parse coordinates as floats: %s", coord_string)
+            return "", "point"
 
         # Try to determine if it's [lng,lat] or [lat,lng]
         # Assume [lng,lat] first (preferred)
@@ -522,182 +465,104 @@ def process_raw_coordinates_to_wkt(coord_string: str) -> Tuple[Optional[str], st
             return f"POINT({b} {a})", "point"
 
         # Coordinates out of range
-        logging.warning(f"Coordinates out of range: {coord_string}")
-        return None, "point"
+        logging.warning("Coordinates out of range: %s", coord_string)
+        return "", "point"
 
     except Exception as e:
-        logging.error(f"Error processing raw coordinates: {e}")
-        return None, "point"
+        logging.error("Error processing raw coordinates: %s", str(e))
+        return "", "point"
 
 
-async def create_location_proof(conn, attestation, location_data, chain_id):
-    """
-    Create or update a location proof record in the database.
+async def create_location_proof(
+    conn: asyncpg.Connection,
+    attestation: Dict[str, Any],
+    location_data: Dict[str, Any],
+    chain_id: int,
+) -> Optional[int]:
+    """Create a location proof record in the database.
 
     Args:
-        conn: Database connection (asyncpg.Connection)
+        conn: Database connection
         attestation: Attestation data from EAS
-        location_data: Extracted location data
+        location_data: Parsed location data
         chain_id: Chain ID
 
     Returns:
-        True if successful, False otherwise
+        ID of the created location proof or None if creation fails
     """
     try:
-        # Debug: Print attestation structure
-        logging.debug(f"Attestation data: {attestation}")
-
-        # Check if we have WKT data
-        location_wkt = location_data.get("location_wkt")
-        if not location_wkt:
-            logging.error(f"No WKT data for attestation {attestation['id']}")
-            return False
-
-        # Check if attestation already exists
-        row = await conn.fetchrow(
-            "SELECT id FROM location_proof WHERE uid = $1", attestation["id"]
+        # Get the chain's ID from its chain_id
+        chain_row = await conn.fetchrow(
+            "SELECT id FROM chain WHERE chain_id = $1", chain_id
         )
+        if not chain_row or chain_row["id"] is None:
+            logging.error("Chain with chain_id %d not found", chain_id)
+            return None
 
-        # Convert media_type and media_data to JSON strings if they're not already
-        media_type = (
-            json.dumps(location_data.get("media_type", ""))
-            if not isinstance(location_data.get("media_type", ""), str)
-            else location_data.get("media_type", "")
-        )
-        media_data = (
-            json.dumps(location_data.get("media_data", ""))
-            if not isinstance(location_data.get("media_data", ""), str)
-            else location_data.get("media_data", "")
-        )
+        chain_id_pk = int(chain_row["id"])
 
-        # Convert recipe_type and recipe_payload to JSON strings if they're not already
-        recipe_type = (
-            json.dumps(location_data.get("recipe_type", ""))
-            if not isinstance(location_data.get("recipe_type", ""), str)
-            else location_data.get("recipe_type", "")
-        )
-        recipe_payload = (
-            json.dumps(location_data.get("recipe_payload", {}))
-            if not isinstance(location_data.get("recipe_payload", {}), str)
-            else location_data.get("recipe_payload", "{}")
-        )
-
-        # Get address IDs for attester and recipient
+        # Get or create address records
         attester_id = await get_address_id(conn, attestation["attester"])
         recipient_id = await get_address_id(conn, attestation["recipient"])
 
-        # Get schema ID from the attestation or from the chain config
-        schema_id = attestation.get("schemaId")
-        if not schema_id:
-            # If not in the attestation, get it from the chain config
-            schema_id = await get_schema_id(conn, chain_id)
-            if not schema_id:
-                logging.error(f"No schema ID found for chain {chain_id}")
-                return False
+        # Extract location data
+        location_wkt = location_data.get("location_wkt", "")
+        if not location_wkt:
+            logging.warning("No WKT location for attestation %s", attestation["id"])
+            return None
 
-        if row:
-            # Update existing record
-            await conn.execute(
-                """
-                UPDATE location_proof
-                SET schema = $1,
-                    event_timestamp = $2,
-                    expiration_time = $3,
-                    revoked = $4,
-                    revocation_time = $5,
-                    ref_uid = $6,
-                    revocable = $7,
-                    srs = $8,
-                    location_type = $9,
-                    location = ST_GeomFromText($10, 4326),
-                    recipe_type = $11,
-                    recipe_payload = $12::jsonb,
-                    media_type = $13,
-                    media_data = $14,
-                    memo = $15,
-                    status = $16,
-                    block_number = $17,
-                    transaction_hash = $18,
-                    cid = $19,
-                    chain_id = $20,
-                    attester_id = $21,
-                    recipient_id = $22,
-                    updated_at = NOW()
-                WHERE id = $23
-                """,
-                schema_id,
-                attestation.get("time", int(time.time())),
-                attestation.get("expirationTime", 0),
-                attestation.get("revoked", False),
-                attestation.get("revocationTime", 0),
-                attestation.get("refUID", ""),
-                attestation.get("revocable", True),
-                location_data.get("srs", "EPSG:4326"),
-                location_data.get("location_type", "point"),
-                location_wkt,
-                recipe_type,
-                recipe_payload,
-                media_type,
-                media_data,
-                location_data.get("memo", ""),
-                "confirmed",
-                attestation.get("blockNumber", 0),
-                attestation.get("transactionHash", ""),
-                "",  # CID
-                chain_id,
-                attester_id,
-                recipient_id,
-                row["id"],
-            )
-            logging.info(f"Updated location proof for attestation {attestation['id']}")
-        else:
-            # Insert new record
-            await conn.execute(
-                """
-                INSERT INTO location_proof (
-                    uid, schema, event_timestamp, expiration_time, revoked,
-                    revocation_time, ref_uid, revocable, srs, location_type,
-                    location, recipe_type, recipe_payload, media_type, media_data,
-                    memo, status, block_number, transaction_hash, cid,
-                    chain_id, attester_id, recipient_id
-                ) VALUES (
-                    $1, $2, $3, $4, $5,
-                    $6, $7, $8, $9, $10,
-                    ST_GeomFromText($11, 4326), $12, $13::jsonb, $14, $15,
-                    $16, $17, $18, $19, $20,
-                    $21, $22, $23
-                )
-                """,
-                attestation["id"],
-                schema_id,
-                attestation.get("time", int(time.time())),
-                attestation.get("expirationTime", 0),
-                attestation.get("revoked", False),
-                attestation.get("revocationTime", 0),
-                attestation.get("refUID", ""),
-                attestation.get("revocable", True),
-                location_data.get("srs", "EPSG:4326"),
-                location_data.get("location_type", "point"),
-                location_wkt,
-                recipe_type,
-                recipe_payload,
-                media_type,
-                media_data,
-                location_data.get("memo", ""),
-                "confirmed",
-                attestation.get("blockNumber", 0),
-                attestation.get("transactionHash", ""),
-                "",  # CID
-                chain_id,
-                attester_id,
-                recipient_id,
-            )
-            logging.info(f"Created location proof for attestation {attestation['id']}")
+        # Create location proof record
+        location_proof_id = await conn.fetchval(
+            """
+            INSERT INTO location_proof (
+                schema_uid, attestation_uid, event_timestamp,
+                expiration_time, revoked, revocation_time,
+                ref_uid, revocable, srs, spatial_type,
+                location_wkt, recipe_type, recipe_payload,
+                media_type, media_data, memo, status,
+                block_number, transaction_hash, chain_id,
+                attester_id, recipient_id, created_at, updated_at
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+                $21, $22, NOW(), NOW()
+            ) RETURNING id
+            """,
+            attestation["schemaId"],  # schema_uid
+            attestation["id"],  # attestation_uid
+            int(attestation["time"]),  # event_timestamp
+            int(attestation.get("expirationTime", 0)) or None,  # expiration_time
+            attestation.get("revoked", False),  # revoked
+            int(attestation.get("revocationTime", 0)) or None,  # revocation_time
+            attestation.get("refUID"),  # ref_uid
+            True,  # revocable
+            "EPSG:4326",  # srs
+            location_data.get("location_type", "point"),  # spatial_type
+            location_wkt,  # location_wkt
+            json.dumps(location_data.get("recipe_type", [])),  # recipe_type
+            json.dumps(location_data.get("recipe_payload", {})),  # recipe_payload
+            json.dumps(location_data.get("media_type", [])),  # media_type
+            json.dumps(location_data.get("media_data", [])),  # media_data
+            location_data.get("memo", ""),  # memo
+            "confirmed",  # status
+            int(attestation["blockNumber"]),  # block_number
+            attestation["txid"],  # transaction_hash
+            chain_id_pk,  # chain_id (using the primary key)
+            attester_id,  # attester_id
+            recipient_id,  # recipient_id
+        )
 
-        return True
+        if location_proof_id is None:
+            logging.error(
+                "Failed to create location proof for attestation %s", attestation["id"]
+            )
+            return None
+
+        return int(location_proof_id)
+
     except Exception as e:
-        logging.error(f"Error creating/updating location proof: {str(e)}")
-        return False
+        logging.error("Error creating location proof: %s", str(e))
+        return None
 
 
 def fetch_attestations(
@@ -715,7 +580,10 @@ def fetch_attestations(
     """
     query = """
     query GetAttestations($schemaId: String!, $take: Int!) {
-      attestations(where: {schemaId: {equals: $schemaId}}, take: $take) {
+      attestations(
+        where: {schemaId: {equals: $schemaId}},
+        take: $take
+      ) {
         id
         attester
         recipient
@@ -756,10 +624,11 @@ def fetch_attestations(
             print("\n\n=== ATTESTATION STRUCTURE ===")
             print(f"Keys in attestation: {list(result[0].keys())}")
             print(f"Data field type: {type(result[0].get('data', ''))}")
+            data_preview = result[0].get("data", "")
             print(
-                f"Data field value: {result[0].get('data', '')[:200]}..."
-                if len(str(result[0].get("data", ""))) > 200
-                else f"Data field value: {result[0].get('data', '')}"
+                f"Data field value: {data_preview[:200]}..."
+                if len(str(data_preview)) > 200
+                else f"Data field value: {data_preview}"
             )
             print("=== END ATTESTATION STRUCTURE ===\n\n")
 
@@ -786,31 +655,35 @@ async def process_chain(
         # Get chain information
         chain_info = await get_chain_info(conn, chain_id)
         if not chain_info:
-            logging.warning(f"Chain {chain_id} not found in database")
+            logging.warning("Chain %d not found in database", chain_id)
             return 0
 
         # Get EAS endpoint for this chain
-        eas_endpoint = await get_eas_endpoint(chain_info)
+        eas_endpoint = get_eas_endpoint(chain_info)
         if not eas_endpoint:
-            logging.warning(f"No EAS endpoint found for chain {chain_id}")
+            logging.warning("No EAS endpoint found for chain %d", chain_id)
             return 0
 
         # Get the schema ID for this chain
-        schema_id = await get_schema_id(conn, chain_id)
+        schema_id = get_schema_id(chain_id)
         if not schema_id:
-            logging.warning(f"No schema ID found for chain {chain_id}")
+            logging.warning("No schema ID found for chain %d", chain_id)
             return 0
 
-        logging.info(f"Fetching attestations for chain {chain_id} from {eas_endpoint}")
+        logging.info(
+            "Fetching attestations for chain %d from %s", chain_id, eas_endpoint
+        )
 
         # Fetch attestations from the EAS endpoint
         try:
             attestations = fetch_attestations(eas_endpoint, schema_id, limit)
             logging.info(
-                f"Fetched {len(attestations)} attestations from {eas_endpoint}"
+                "Fetched %d attestations from %s", len(attestations), eas_endpoint
             )
         except Exception as e:
-            logging.error(f"Failed to fetch attestations from {eas_endpoint}: {e}")
+            logging.error(
+                "Failed to fetch attestations from %s: %s", eas_endpoint, str(e)
+            )
             return 0
 
         processed_count = 0
@@ -823,7 +696,8 @@ async def process_chain(
                 location_data = extract_location_data(attestation)
                 if not location_data:
                     logging.debug(
-                        f"Skipping attestation {attestation.get('id', 'unknown')}: No valid location data"
+                        "Skipping attestation %s: No valid location data",
+                        attestation.get("id", "unknown"),
                     )
                     skipped_count += 1
                     continue
@@ -840,20 +714,26 @@ async def process_chain(
 
             except Exception as e:
                 logging.error(
-                    f"Error processing attestation {attestation.get('id', 'unknown')}: {e}"
+                    "Error processing attestation %s: %s",
+                    attestation.get("id", "unknown"),
+                    str(e),
                 )
                 error_count += 1
                 continue
 
         logging.info(
-            f"Chain {chain_id} summary: "
-            f"Processed {processed_count} attestations, "
-            f"Skipped {skipped_count} attestations, "
-            f"Errors {error_count} attestations"
+            "Chain %d summary: "
+            "Processed %d attestations, "
+            "Skipped %d attestations, "
+            "Errors %d attestations",
+            chain_id,
+            processed_count,
+            skipped_count,
+            error_count,
         )
         return processed_count
     except Exception as e:
-        logging.error(f"Error processing chain {chain_id}: {e}")
+        logging.error("Error processing chain %d: %s", chain_id, str(e))
         return 0
 
 
@@ -868,14 +748,14 @@ async def seed_location_proofs(
     """
     start_time = time.time()
     logging.info(
-        f"Starting location proof seeding process at {datetime.now().isoformat()}"
+        "Starting location proof seeding process at %s", datetime.now().isoformat()
     )
 
     # Load EAS configuration
     try:
         eas_config = load_eas_config()
     except Exception as e:
-        logging.error(f"Failed to load EAS configuration: {e}")
+        logging.error("Failed to load EAS configuration: %s", str(e))
         return
 
     # Get database connection parameters from environment
@@ -891,7 +771,7 @@ async def seed_location_proofs(
             host=host, port=port, user=user, password=password, database=db
         )
     except Exception as e:
-        logging.error(f"Failed to connect to database: {e}")
+        logging.error("Failed to connect to database: %s", str(e))
         return
 
     try:
@@ -900,11 +780,11 @@ async def seed_location_proofs(
         if chain_id:
             # Process specific chain
             chain_ids = [chain_id]
-            logging.info(f"Processing specific chain: {chain_id}")
+            logging.info("Processing specific chain: %d", chain_id)
         else:
             # Process all chains in the EAS config
             chain_ids = [int(cid) for cid in eas_config.get("chains", {}).keys()]
-            logging.info(f"Processing all chains: {chain_ids}")
+            logging.info("Processing all chains: %s", chain_ids)
 
         total_processed = 0
         chain_results = {}
@@ -918,21 +798,21 @@ async def seed_location_proofs(
 
         # Log detailed results
         for cid, count in chain_results.items():
-            logger.info(f"Chain {cid}: Processed {count} location proofs")
+            logger.info("Chain %d: Processed %d location proofs", cid, count)
 
-        logger.info(f"Total location proofs processed: {total_processed}")
+        logger.info("Total location proofs processed: %d", total_processed)
 
         # Get total count of location proofs
         total_count = await conn.fetchval("SELECT COUNT(*) FROM location_proof")
-        logger.info(f"Total location proofs in database: {total_count}")
+        logger.info("Total location proofs in database: %d", total_count)
 
         # Log execution time
         end_time = time.time()
         execution_time = end_time - start_time
-        logger.info(f"Location proof seeding completed in {execution_time:.2f} seconds")
+        logger.info("Location proof seeding completed in %.2f seconds", execution_time)
 
     except Exception as e:
-        logging.error(f"Error during location proof seeding: {e}")
+        logging.error("Error during location proof seeding: %s", str(e))
     finally:
         # Close the connection
         await conn.close()

@@ -24,7 +24,7 @@ class SyncState(Base):
 
     # Chain relationship
     chain_id: Mapped[int] = mapped_column(
-        ForeignKey("chain.chain_id", ondelete="CASCADE"),
+        ForeignKey("chain.id", ondelete="CASCADE"),
         index=True,
         nullable=False,
         doc="References the Chains table",

@@ -46,6 +46,7 @@ def upgrade() -> None:
     # Create chain table
     op.create_table(
         "chain",
+        sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("chain_id", sa.Integer(), nullable=False),
         sa.Column("name", sa.String(), nullable=False),
         sa.Column("chain", sa.String(), nullable=False),
@@ -70,7 +71,8 @@ def upgrade() -> None:
             nullable=False,
             server_default=sa.text("now()"),
         ),
-        sa.PrimaryKeyConstraint("chain_id", name=op.f("pk_chain")),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_chain")),
+        sa.UniqueConstraint("chain_id", name=op.f("uq_chain_chain_id")),
     )
 
     # Create address table
@@ -156,7 +158,7 @@ def upgrade() -> None:
         ),
         sa.ForeignKeyConstraint(
             ["chain_id"],
-            ["chain.chain_id"],
+            ["chain.id"],
             name=op.f("fk_location_proof_chain_id_chain"),
             ondelete="CASCADE",
         ),

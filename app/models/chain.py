@@ -23,16 +23,21 @@ class Chain(Base):
         """Return the table name."""
         return "chain"
 
-    # Override id with a non-primary key version
-    # This effectively disables the id column from Base
-    # Use type: ignore to bypass the type checker for this special case
-    id: Mapped[int] = mapped_column(primary_key=False, nullable=True)  # type: ignore
-
-    # Use chain_id as primary key instead of id
-    chain_id: Mapped[int] = mapped_column(
+    # Use id from Base as primary key
+    id: Mapped[int] = mapped_column(
         Integer,
         primary_key=True,
+        autoincrement=True,
         index=True,
+        doc="Primary key for the chain record",
+    )
+
+    # Make chain_id unique but not primary key
+    chain_id: Mapped[int] = mapped_column(
+        Integer,
+        unique=True,
+        index=True,
+        nullable=False,
         doc="The chain ID (e.g. 1 for Ethereum mainnet)",
     )
 

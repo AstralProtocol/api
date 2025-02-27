@@ -245,6 +245,19 @@ async def seed_chains(
                     chain_id, name, chain, rpc, faucets, native_currency,
                     features, info_url, short_name, network_id, icon, explorers
                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                ON CONFLICT (chain_id) DO UPDATE SET
+                    name = EXCLUDED.name,
+                    chain = EXCLUDED.chain,
+                    rpc = EXCLUDED.rpc,
+                    faucets = EXCLUDED.faucets,
+                    native_currency = EXCLUDED.native_currency,
+                    features = EXCLUDED.features,
+                    info_url = EXCLUDED.info_url,
+                    short_name = EXCLUDED.short_name,
+                    network_id = EXCLUDED.network_id,
+                    icon = EXCLUDED.icon,
+                    explorers = EXCLUDED.explorers,
+                    updated_at = now()
                 """,
                 chain_data["chain_id"],
                 chain_data["name"],
