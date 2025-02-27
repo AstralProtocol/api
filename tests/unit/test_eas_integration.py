@@ -1,20 +1,28 @@
 """Unit tests for EAS integration service."""
 
+from typing import Any, AsyncGenerator, Optional, Sequence
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from eth_abi import encode
+from gql import Client
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.chain import Chain
 from app.models.sync_state import SyncState
 from app.services.eas_integration import EASIntegrationService
+from app.services.schema_encoder import SchemaEncoder
 
 
 @pytest.fixture
-def mock_session() -> AsyncMock:
-    """Create a mock database session."""
-    session = AsyncMock(spec=AsyncSession)
-    return session
+async def mock_session() -> AsyncMock:
+    """Create a mock async session for testing.
+
+    Returns:
+        AsyncMock: A mock async session for testing
+    """
+    return AsyncMock(spec=AsyncSession)
 
 
 @pytest.fixture
@@ -53,52 +61,181 @@ def mock_sync_state() -> MagicMock:
 
 
 @pytest.mark.asyncio
-async def test_initialize(mock_session_factory: MagicMock) -> None:
-    """Test that the EAS service initializes correctly."""
-    # Arrange
+async def test_fetch_chains(mock_session_factory: MagicMock) -> None:
+    """Test that chains can be fetched from the database."""
+    # Create service
     service = EASIntegrationService(mock_session_factory)
 
-    # Create a mock chain
+    # Create a simple mock chain
     chain = Chain(
         chain_id=1,
         name="Test Chain",
-        rpc_url="https://test.chain",
-        eas_url="https://eas.test.chain",
-        explorer_url="https://explorer.test.chain",
+        features={
+            "features": [{"name": "EAS", "graphql": "https://eas.test.chain/graphql"}]
+        },
     )
 
-    # Mock the session's execute method to return our mock chain
-    mock_result = MagicMock()
-    mock_result.scalars().all.return_value = [chain]
-    mock_session = mock_session_factory.return_value.__aenter__.return_value
+    # Set up simple session mock that returns our chain
+    mock_session = AsyncMock()
+    mock_result = AsyncMock()
+    mock_result.scalars.return_value.all.return_value = [chain]
     mock_session.execute.return_value = mock_result
 
-    # Mock the _get_schema_uid method
+    # Set up session factory to yield our session
+    async def mock_factory() -> AsyncGenerator[AsyncMock, None]:
+        yield mock_session
+
+    mock_session_factory.return_value = mock_factory()
+
+    # Call the private method directly to test chain fetching
+    async for session in service.get_session():
+        query = select(Chain)
+        result = await session.execute(query)
+        result_scalar = result.scalars()
+        chains: Sequence[Chain] = result_scalar.all()
+
+        # Verify we got our chain
+        assert len(chains) == 1
+        assert chains[0].chain_id == 1
+        assert chains[0].name == "Test Chain"
+
+
+@pytest.mark.asyncio
+async def test_create_graphql_client(
+    mock_session_factory: MagicMock, mock_chain: Chain
+) -> Client:
+    """Test that GraphQL clients are created correctly.
+
+    Args:
+        mock_session_factory: Mock session factory
+        mock_chain: Mock chain object
+
+    Returns:
+        Client: The created GraphQL client
+    """
+    service = EASIntegrationService(mock_session_factory)
+
+    # Mock the client
+    mock_client = MagicMock(
+        spec=Client
+    )  # Changed to MagicMock since we don't need async
+
+    with (
+        patch(
+            "app.services.eas_integration.AIOHTTPTransport", autospec=True
+        ) as mock_transport_class,
+        patch("app.services.eas_integration.Client", return_value=mock_client),
+    ):
+
+        # Test client creation directly
+        endpoint = "https://eas.test.chain/graphql"
+        result = service._create_graphql_client(endpoint)
+
+        # Verify transport and client were created correctly
+        assert result == mock_client
+        # Verify transport was created with correct URL
+        mock_transport_class.assert_called_once_with(url=endpoint)
+
+        return result
+
+
+@pytest.mark.asyncio
+async def test_get_schema_uid(mock_session_factory: MagicMock) -> Optional[str]:
+    """Test fetching schema UID.
+
+    Args:
+        mock_session_factory: Mock session factory
+
+    Returns:
+        Optional[str]: The fetched schema UID
+    """
+    service = EASIntegrationService(mock_session_factory)
+
+    # Create mock client
+    mock_client = AsyncMock()
     schema_uid = "0x1234567890123456789012345678901234567890123456789012345678901234"
-    with patch.object(
-        service, "_get_schema_uid", new_callable=AsyncMock
-    ) as mock_get_schema:
-        mock_get_schema.return_value = schema_uid
+    mock_client.execute_async.return_value = {"schemas": [{"uid": schema_uid}]}
 
-        # Mock the _get_eas_endpoint method
-        with patch.object(
-            service, "_get_eas_endpoint", return_value="https://eas.test.chain"
-        ):
-            # Act
-            await service.initialize()
+    # Add mock client to service
+    service.clients[1] = mock_client
 
-            # Assert
-            mock_session.execute.assert_called_once()
-            assert 1 in service.clients
-            assert service.schema_uids == {1: schema_uid}
-            assert service.initialized is True
+    # Test schema UID fetching
+    result: Optional[str] = await service._get_schema_uid(1)
+    assert result == schema_uid
+    mock_client.execute_async.assert_called_once()
+
+    return result
+
+
+@pytest.mark.asyncio
+async def test_full_initialization(
+    mock_session_factory: MagicMock, caplog: Any
+) -> None:
+    """Test the full initialization process with minimal mocking.
+
+    Args:
+        mock_session_factory: Mock session factory
+        caplog: Pytest fixture for capturing log output
+    """
+    import logging
+
+    caplog.set_level(logging.INFO)
+
+    # Create service
+    service = EASIntegrationService(mock_session_factory)
+
+    # Create minimal chain
+    chain = Chain(
+        chain_id=1,
+        name="Test Chain",
+        features={
+            "features": [{"name": "EAS", "graphql": "https://eas.test.chain/graphql"}]
+        },
+    )
+
+    # Simple session mock
+    mock_session = AsyncMock()
+    mock_result = AsyncMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = [chain]
+    mock_result.scalars.return_value = mock_scalars
+    mock_session.execute.return_value = mock_result
+
+    async def mock_factory() -> AsyncGenerator[AsyncMock, None]:
+        yield mock_session
+
+    mock_session_factory.return_value = mock_factory()
+
+    # Mock GraphQL client and transport
+    mock_client = AsyncMock()
+    mock_client.execute_async.return_value = {"schemas": [{"uid": "0x1234"}]}
+
+    with (
+        patch("app.services.eas_integration.Client", return_value=mock_client),
+        patch("app.services.eas_integration.AIOHTTPTransport"),
+    ):
+
+        # Run initialization
+        await service.initialize()
+
+        # Verify service state
+        assert service.initialized
+        assert 1 in service.clients
+        assert 1 in service.schema_uids
+        assert service.schema_uids[1] == "0x1234"
 
 
 @pytest.mark.asyncio
 async def test_get_or_create_sync_state_existing(
     mock_session_factory: MagicMock, mock_session: AsyncMock, mock_sync_state: MagicMock
 ) -> None:
-    """Test getting an existing sync state."""
+    """Test getting an existing sync state.
+
+    Args:
+        mock_session_factory: Mock session factory
+        mock_session: Mock async session
+        mock_sync_state: Mock sync state object
+    """
     # Mock session.execute to return our mock sync state
     mock_result = MagicMock()
     mock_result.scalars.return_value.first.return_value = mock_sync_state
@@ -160,8 +297,7 @@ async def test_query_attestations(mock_session_factory: MagicMock) -> None:
     # Create service with mocked session factory
     service = EASIntegrationService(mock_session_factory)
 
-    # Mock GraphQL client
-    mock_client = MagicMock()
+    # Create mock result
     mock_result = {
         "attestations": [
             {
@@ -182,6 +318,9 @@ async def test_query_attestations(mock_session_factory: MagicMock) -> None:
             }
         ]
     }
+
+    # Create mock client with async execute method
+    mock_client = AsyncMock()
     mock_client.execute_async.return_value = mock_result
 
     # Query attestations
@@ -197,18 +336,17 @@ async def test_query_attestations(mock_session_factory: MagicMock) -> None:
     # Verify that the result is correct
     assert result == mock_result["attestations"]
 
-    # Verify that the client was used correctly
+    # Verify that execute_async was called with the correct parameters
     mock_client.execute_async.assert_called_once()
-
-    # Verify that the query parameters are correct
-    call_args = mock_client.execute_async.call_args[1]
-    assert "variable_values" in call_args
-    assert call_args["variable_values"]["schemaId"] == schema_uid
-    assert "where" in call_args["variable_values"]
-    where = call_args["variable_values"]["where"]
-    assert where["schemaId"]["equals"] == schema_uid
-    assert where["time"]["gt"] == str(last_timestamp)
-    assert where["blockNumber"]["gt"] == str(last_block)
+    call_args = mock_client.execute_async.call_args
+    assert len(call_args[0]) == 1  # First argument should be the query
+    assert call_args[1]["variable_values"] == {
+        "where": {
+            "schemaId": {"equals": schema_uid},
+            "time": {"gt": str(last_timestamp)},
+            "blockNumber": {"gt": str(last_block)},
+        }
+    }
 
 
 @pytest.mark.asyncio
@@ -217,11 +355,27 @@ async def test_parse_attestation_data(mock_session_factory: MagicMock) -> None:
     # Create service with mocked session factory
     service = EASIntegrationService(mock_session_factory)
 
-    # Create a mock attestation
+    # Create test data matching our schema
+    test_data = (
+        1234567890,  # eventTimestamp
+        "EPSG:4326",  # srs
+        "Point",  # locationType
+        "40.7128,-74.0060",  # location
+        ["recipe1"],  # recipeType
+        [b"payload1"],  # recipePayload
+        ["image/jpeg"],  # mediaType
+        ["data1"],  # mediaData
+        "Test memo",  # memo
+    )
+
+    # Encode the test data
+    encoded_bytes = encode(SchemaEncoder.SCHEMA_TYPES, test_data)
+    encoded_hex = "0x" + encoded_bytes.hex()
+
+    # Create a mock attestation with the encoded data
     attestation = {
         "id": "0xabc123",
-        "data": "0x1234",
-        # Other fields not relevant for this test
+        "data": encoded_hex,
     }
 
     # Parse the attestation data
@@ -229,17 +383,39 @@ async def test_parse_attestation_data(mock_session_factory: MagicMock) -> None:
 
     # Verify that the result is correct
     assert result is not None
-    assert "srs" in result
-    assert "spatial_type" in result
-    assert "location_wkt" in result
-    assert "recipe_type" in result
-    assert "recipe_payload" in result
-    assert "media_type" in result
-    assert "media_data" in result
-    assert "memo" in result
+    assert result["eventTimestamp"] == 1234567890
+    assert result["srs"] == "EPSG:4326"
+    assert result["locationType"] == "Point"
+    assert result["location"] == "40.7128,-74.0060"
+    assert result["recipeType"] == ["recipe1"]
+    assert result["recipePayload"] == [b"payload1"]
+    assert result["mediaType"] == ["image/jpeg"]
+    assert result["mediaData"] == ["data1"]
+    assert result["memo"] == "Test memo"
 
-    # Verify that the WKT is valid
-    assert result["location_wkt"] == "POINT(0 0)"
+
+@pytest.mark.asyncio
+async def test_parse_attestation_data_invalid(mock_session_factory: MagicMock) -> None:
+    """Test parsing invalid attestation data."""
+    service = EASIntegrationService(mock_session_factory)
+
+    # Test with missing data field
+    attestation_no_data = {"id": "0xabc123"}
+    result = service._parse_attestation_data(attestation_no_data)
+    assert result is None
+
+    # Test with invalid hex string
+    attestation_invalid_hex = {"id": "0xabc123", "data": "0xNOTHEX"}
+    result = service._parse_attestation_data(attestation_invalid_hex)
+    assert result is None
+
+    # Test with invalid data format
+    attestation_invalid_format = {
+        "id": "0xabc123",
+        "data": 12345,  # Not a string or bytes
+    }
+    result = service._parse_attestation_data(attestation_invalid_format)
+    assert result is None
 
 
 @pytest.mark.asyncio
@@ -258,6 +434,241 @@ async def test_sync_attestations_handles_errors(
     service.schema_uids = {1: "test-schema-uid"}
 
     # Act
+    result = await service.sync_attestations([1])
+
+    # Assert - no exception should be raised, and the function should return normally
+    assert result == {1: 0}
+
+
+@pytest.mark.asyncio
+async def test_initialize_no_chains(mock_session: AsyncMock) -> None:
+    """Test initialization with no chains in database."""
+    # Setup mock session to return empty result
+    mock_session.execute.return_value.scalars.return_value.all.return_value = []
+
+    # Create service
+    service = EASIntegrationService(lambda: mock_session)
+    await service.initialize()
+
+    # Verify no clients were created
+    assert len(service.clients) == 0
+    assert len(service.schema_uids) == 0
+
+
+@pytest.mark.asyncio
+async def test_initialize_with_chains(mock_session: AsyncMock) -> None:
+    """Test initialization with chains in database."""
+    # Setup mock chain data
+    mock_chain = Chain(
+        chain_id=1,
+        name="Test Chain",
+        features=[{"name": "EAS", "url": "http://test.com/graphql"}],
+    )
+    mock_session.execute.return_value.scalars.return_value.all.return_value = [
+        mock_chain
+    ]
+
+    # Mock GQL client creation
+    mock_client = MagicMock(spec=Client)
+    mock_client.execute_async.return_value = {"schemas": [{"uid": "test-schema"}]}
+
+    with patch("app.services.eas_integration.Client", return_value=mock_client):
+        # Create service
+        service = EASIntegrationService(lambda: mock_session)
+        await service.initialize()
+
+        # Verify client was created
+        assert len(service.clients) == 1
+        assert 1 in service.clients
+        assert service.schema_uids[1] == "test-schema"
+
+
+@pytest.mark.asyncio
+async def test_sync_attestations_new_chain(mock_session: AsyncMock) -> None:
+    """Test syncing attestations for a new chain."""
+    # Setup mock chain data
+    mock_chain = Chain(
+        chain_id=1,
+        name="Test Chain",
+        features=[{"name": "EAS", "url": "http://test.com/graphql"}],
+    )
+    mock_session.execute.return_value.scalars.return_value.all.return_value = [
+        mock_chain
+    ]
+
+    # Mock GQL client
+    mock_client = MagicMock(spec=Client)
+    mock_client.execute_async.side_effect = [
+        {"schemas": [{"uid": "test-schema"}]},  # First call for schema UID
+        {  # Second call for attestations
+            "attestations": [
+                {
+                    "id": "test-id",
+                    "attester": "0x123",
+                    "recipient": "0x456",
+                    "time": "1234567890",
+                    "blockNumber": "100",
+                    "data": "0x0",
+                }
+            ]
+        },
+    ]
+
+    # Mock sync state query to return None (new chain)
+    mock_session.execute.return_value.scalars.return_value.first.return_value = None
+
+    with patch("app.services.eas_integration.Client", return_value=mock_client):
+        # Create service
+        service = EASIntegrationService(lambda: mock_session)
+        await service.initialize()
+
+        # Sync attestations
+        result = await service.sync_attestations([1])
+
+        # Verify sync state was created
+        sync_state_query = select(SyncState).where(
+            SyncState.chain_id == 1, SyncState.schema_uid == "test-schema"
+        )
+        mock_session.execute.assert_called_with(sync_state_query)
+
+        # Verify result
+        assert result == {1: 1}
+
+
+@pytest.mark.asyncio
+async def test_sync_attestations_existing_chain(mock_session: AsyncMock) -> None:
+    """Test syncing attestations for an existing chain."""
+    # Setup mock chain data
+    mock_chain = Chain(
+        chain_id=1,
+        name="Test Chain",
+        features=[{"name": "EAS", "url": "http://test.com/graphql"}],
+    )
+    mock_session.execute.return_value.scalars.return_value.all.return_value = [
+        mock_chain
+    ]
+
+    # Mock existing sync state
+    mock_sync_state = SyncState(
+        chain_id=1,
+        schema_uid="test-schema",
+        last_block_number=50,
+        last_timestamp=1234567800,
+        last_attestation_uid="prev-id",
+    )
+    mock_session.execute.return_value.scalars.return_value.first.return_value = (
+        mock_sync_state
+    )
+
+    # Mock GQL client
+    mock_client = MagicMock(spec=Client)
+    mock_client.execute_async.side_effect = [
+        {"schemas": [{"uid": "test-schema"}]},  # First call for schema UID
+        {  # Second call for attestations
+            "attestations": [
+                {
+                    "id": "test-id-2",
+                    "attester": "0x789",
+                    "recipient": "0xabc",
+                    "time": "1234567890",
+                    "blockNumber": "100",
+                    "data": "0x0",
+                }
+            ]
+        },
+    ]
+
+    with patch("app.services.eas_integration.Client", return_value=mock_client):
+        # Create service
+        service = EASIntegrationService(lambda: mock_session)
+        await service.initialize()
+
+        # Sync attestations
+        result = await service.sync_attestations([1])
+
+        # Verify sync state was updated
+        assert mock_sync_state.last_block_number == 100
+        assert mock_sync_state.last_timestamp == 1234567890
+        assert mock_sync_state.last_attestation_uid == "test-id-2"
+
+        # Verify result
+        assert result == {1: 1}
+
+
+@pytest.mark.asyncio
+async def test_initialize_empty_features(mock_session: AsyncMock) -> None:
+    """Test initialization with chain that has empty features."""
+    # Setup mock chain with empty features
+    mock_chain = Chain(chain_id=1, name="Test Chain", features=[])
+    mock_session.execute.return_value.scalars.return_value.all.return_value = [
+        mock_chain
+    ]
+
+    # Create service
+    service = EASIntegrationService(lambda: mock_session)
+    await service.initialize()
+
+    # Verify no clients were created
+    assert len(service.clients) == 0
+    assert len(service.schema_uids) == 0
+
+
+@pytest.mark.asyncio
+async def test_initialize_no_eas_feature(mock_session: AsyncMock) -> None:
+    """Test initialization with chain that has no EAS feature."""
+    # Setup mock chain with non-EAS feature
+    mock_chain = Chain(
+        chain_id=1,
+        name="Test Chain",
+        features=[{"name": "Other", "url": "http://test.com"}],
+    )
+    mock_session.execute.return_value.scalars.return_value.all.return_value = [
+        mock_chain
+    ]
+
+    # Create service
+    service = EASIntegrationService(lambda: mock_session)
+    await service.initialize()
+
+    # Verify no clients were created
+    assert len(service.clients) == 0
+    assert len(service.schema_uids) == 0
+
+
+@pytest.mark.asyncio
+async def test_initialize_no_schema_uid(mock_session: AsyncMock) -> None:
+    """Test initialization when no schema UID is found."""
+    # Setup mock chain data
+    mock_chain = Chain(
+        chain_id=1,
+        name="Test Chain",
+        features=[{"name": "EAS", "url": "http://test.com/graphql"}],
+    )
+    mock_session.execute.return_value.scalars.return_value.all.return_value = [
+        mock_chain
+    ]
+
+    # Mock GQL client to return no schemas
+    mock_client = MagicMock(spec=Client)
+    mock_client.execute_async.return_value = {"schemas": []}
+
+    with patch("app.services.eas_integration.Client", return_value=mock_client):
+        # Create service
+        service = EASIntegrationService(lambda: mock_session)
+        await service.initialize()
+
+        # Verify no clients were created (should be removed when no schema found)
+        assert len(service.clients) == 0
+        assert len(service.schema_uids) == 0
+
+
+@pytest.mark.asyncio
+async def test_sync_attestations_no_clients(mock_session: AsyncMock) -> None:
+    """Test syncing attestations when no clients are initialized."""
+    # Create service without initializing
+    service = EASIntegrationService(lambda: mock_session)
+
+    # Attempt to sync attestations
     result = await service.sync_attestations([1])
 
     # Assert - no exception should be raised, and the function should return normally

@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, cast
 from gql import Client, gql
 from gql.transport.aiohttp import AIOHTTPTransport
 from sqlalchemy import select
+from sqlalchemy.engine.result import ScalarResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import SessionFactory
@@ -17,6 +18,7 @@ from app.models.address import Address
 from app.models.chain import Chain
 from app.models.location_proof import LocationProof
 from app.models.sync_state import SyncState
+from app.services.schema_encoder import SchemaEncoder
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -51,68 +53,60 @@ class EASIntegrationService:
 
         async for session in self.get_session():
             # Get all chains with EAS endpoints
-            # Explicitly select only the columns we need, excluding 'id'
-            query = select(
-                Chain.chain_id,
-                Chain.name,
-                Chain.chain,
-                Chain.rpc,
-                Chain.faucets,
-                Chain.native_currency,
-                Chain.features,
-                Chain.info_url,
-                Chain.short_name,
-                Chain.network_id,
-                Chain.icon,
-                Chain.explorers,
-                Chain.created_at,
-                Chain.updated_at,
-            )
+            query = select(Chain)
             chains_result = await session.execute(query)
-            chains_data = chains_result.all()
+            chains: ScalarResult[Chain] = chains_result.scalars()
+            chains_list = [chain for chain in chains]
 
-            for chain_data in chains_data:
-                # Create a Chain object from the result
-                chain = Chain(
-                    chain_id=chain_data.chain_id,
-                    name=chain_data.name,
-                    chain=chain_data.chain,
-                    rpc=chain_data.rpc,
-                    faucets=chain_data.faucets,
-                    native_currency=chain_data.native_currency,
-                    features=chain_data.features,
-                    info_url=chain_data.info_url,
-                    short_name=chain_data.short_name,
-                    network_id=chain_data.network_id,
-                    icon=chain_data.icon,
-                    explorers=chain_data.explorers,
-                )
+            logger.info(f"Found {len(chains_list)} chains")
+
+            for chain in chains_list:
+                logger.info(f"Processing chain {chain.chain_id}: {chain.name}")
+                logger.info(f"Chain features: {chain.features}")
 
                 # Check if chain has EAS endpoint in its features
                 eas_endpoint = self._get_eas_endpoint(chain)
+                logger.info(f"EAS endpoint: {eas_endpoint}")
+
                 if not eas_endpoint:
                     logger.warning(f"Chain {chain.name} has no EAS endpoint configured")
                     continue
 
-                # Create GraphQL client for this chain
-                transport = AIOHTTPTransport(url=eas_endpoint)
-                self.clients[chain.chain_id] = Client(
-                    transport=transport,
-                    fetch_schema_from_transport=True,
-                )
+                try:
+                    # Create GraphQL client for this chain
+                    transport = AIOHTTPTransport(url=eas_endpoint)
+                    client = Client(
+                        transport=transport,
+                        fetch_schema_from_transport=True,
+                    )
+                    self.clients[chain.chain_id] = client
+                    logger.info(f"Created client for chain {chain.chain_id}")
 
-                # Get schema UID for this chain
-                schema_uid = await self._get_schema_uid(chain.chain_id)
-                if not schema_uid:
-                    logger.warning(f"No schema UID configured for chain {chain.name}")
+                    # Get schema UID for this chain
+                    schema_uid = await self._get_schema_uid(chain.chain_id)
+                    logger.info(f"Got schema UID: {schema_uid}")
+
+                    if not schema_uid:
+                        logger.warning(
+                            f"No schema UID configured for chain {chain.name}"
+                        )
+                        # Remove the client if we couldn't get the schema UID
+                        self.clients.pop(chain.chain_id, None)
+                        continue
+
+                    self.schema_uids[chain.chain_id] = schema_uid
+
+                    logger.info(
+                        f"Initialized EAS client for chain {chain.name} "
+                        f"with schema {schema_uid}"
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Error initializing client for chain {chain.name}: {e}"
+                    )
+                    # Clean up if there was an error
+                    self.clients.pop(chain.chain_id, None)
                     continue
-
-                self.schema_uids[chain.chain_id] = schema_uid
-
-                logger.info(
-                    f"Initialized EAS client for chain {chain.name} "
-                    f"with schema {schema_uid}"
-                )
 
         self.initialized = True
         logger.info("EAS Integration Service initialized")
@@ -248,58 +242,51 @@ class EASIntegrationService:
         Args:
             client: GraphQL client
             schema_uid: Schema UID to query
-            last_block: Last synced block number
-            last_timestamp: Last synced timestamp
-            last_uid: UID of the last synced attestation
+            last_block: Last processed block number
+            last_timestamp: Last processed timestamp
+            last_uid: Last processed attestation UID
 
         Returns:
             List of attestation data dictionaries
         """
-        # Define GraphQL query
-        query = gql(
-            """
-        query GetAttestations($schemaId: String!, $where: AttestationWhereInput) {
-          attestations(
-            where: $where
-            orderBy: { time: asc }
-            first: 100
-          ) {
-            id
-            attester
-            recipient
-            revoked
-            revocationTime
-            expirationTime
-            time
-            data
-            schemaId
-            refUID
-            txid
-            blockNumber
-          }
-        }
-        """
-        )
-
-        # Build where clause
-        where = {
-            "schemaId": {"equals": schema_uid},
-        }
-
-        # Add time filter if we have a last timestamp
-        if last_timestamp > 0:
-            where["time"] = {"gt": str(last_timestamp)}
-
-        # Add block filter if we have a last block
-        if last_block > 0:
-            where["blockNumber"] = {"gt": str(last_block)}
-
-        # Execute query
         try:
-            result = await client.execute_async(
-                query, variable_values={"schemaId": schema_uid, "where": where}
+            # Build the query
+            query = gql(
+                """
+                query GetAttestations($where: AttestationWhereInput!) {
+                    attestations(where: $where, orderBy: {time: asc}, first: 100) {
+                        id
+                        attester
+                        recipient
+                        revoked
+                        revocationTime
+                        expirationTime
+                        time
+                        data
+                        schemaId
+                        refUID
+                        txid
+                        blockNumber
+                    }
+                }
+                """
             )
+
+            # Build the where clause
+            where = {
+                "schemaId": {"equals": schema_uid},
+                "time": {"gt": str(last_timestamp)},
+                "blockNumber": {"gt": str(last_block)},
+            }
+
+            if last_uid:
+                where["id"] = {"gt": last_uid}
+
+            # Execute the query
+            result = await client.execute_async(query, variable_values={"where": where})
+
             return cast(List[Dict[str, Any]], result.get("attestations", []))
+
         except Exception as e:
             logger.error(f"Error querying EAS API: {e}")
             return []
@@ -339,53 +326,19 @@ class EASIntegrationService:
 
                 # Create location proof
                 location_proof = LocationProof(
-                    schema_uid=attestation["schemaId"],
-                    attestation_uid=attestation["id"],
-                    event_timestamp=int(attestation["time"]),
-                    expiration_time=(
-                        int(attestation["expirationTime"])
-                        if attestation["expirationTime"]
-                        else None
-                    ),
-                    revoked=attestation["revoked"],
-                    revocation_time=(
-                        int(attestation["revocationTime"])
-                        if attestation["revocationTime"]
-                        else None
-                    ),
-                    ref_uid=attestation["refUID"],
-                    revocable=True,  # Assuming all attestations are revocable
-                    # Geospatial fields from parsed data
-                    srs=parsed_data["srs"],
-                    spatial_type=parsed_data["spatial_type"],
-                    location_wkt=parsed_data["location_wkt"],
-                    # Recipe and media fields from parsed data
-                    recipe_type=parsed_data["recipe_type"],
-                    recipe_payload=parsed_data["recipe_payload"],
-                    media_type=parsed_data["media_type"],
-                    media_data=parsed_data["media_data"],
-                    memo=parsed_data.get("memo"),
-                    # Status and blockchain fields
-                    status="onchain (validated)",
-                    block_number=int(attestation["blockNumber"]),
-                    transaction_hash=attestation["txid"],
-                    cid=None,  # No IPFS CID for on-chain attestations
-                    # Foreign keys
                     chain_id=chain_id,
-                    attester_id=attester_address.id,
-                    recipient_id=recipient_address.id,
-                    # Additional data
-                    extra={"raw_attestation": attestation},
+                    attester=attester_address,
+                    recipient=recipient_address,
+                    **parsed_data,
                 )
-
                 session.add(location_proof)
+                await session.flush()  # Get ID without committing
                 count += 1
 
             except Exception as e:
-                logger.error(f"Error processing attestation {attestation['id']}: {e}")
+                logger.error(f"Error processing attestation: {e}")
                 continue
 
-        # Commit all changes
         if count > 0:
             await session.commit()
 
@@ -403,18 +356,27 @@ class EASIntegrationService:
             The parsed attestation data as a dictionary, or None if parsing fails.
         """
         try:
-            # For now, return a mock parsed data structure
-            # In a real implementation, this would parse the actual data
-            return {
-                "srs": "EPSG:4326",
-                "spatial_type": "Point",
-                "location_wkt": "POINT(0 0)",
-                "recipe_type": "mock",
-                "recipe_payload": "{}",
-                "media_type": "none",
-                "media_data": "",
-                "memo": "Test attestation",
-            }
+            # Get the encoded data from the attestation
+            encoded_data = attestation.get("data")
+            if not encoded_data:
+                logger.error("No data field in attestation")
+                return None
+
+            # Convert hex string to bytes if necessary
+            if isinstance(encoded_data, str) and encoded_data.startswith("0x"):
+                encoded_data = bytes.fromhex(encoded_data[2:])
+            elif not isinstance(encoded_data, bytes):
+                logger.error(f"Invalid data format: {type(encoded_data)}")
+                return None
+
+            # Decode the data using our SchemaEncoder
+            decoded_data = SchemaEncoder.decode_data(encoded_data)
+
+            # Validate the decoded data
+            SchemaEncoder.validate_decoded_data(decoded_data)
+
+            return decoded_data
+
         except Exception as e:
             logger.error(f"Error parsing attestation data: {e}")
             return None
@@ -492,15 +454,18 @@ class EASIntegrationService:
         """
         # Check if chain has EAS endpoint in its features
         features = chain.features
+        logger.info(f"Getting EAS endpoint from features: {features}")
 
         # Handle the case where features is already a list
         if isinstance(features, list):
+            logger.info("Features is a list")
             eas_feature = next(
                 (f for f in features if isinstance(f, dict) and f.get("name") == "EAS"),
                 None,
             )
         else:
             # Handle the case where features is a dictionary
+            logger.info("Features is a dictionary")
             features_dict = features or {}
             eas_feature = next(
                 (
@@ -511,8 +476,27 @@ class EASIntegrationService:
                 None,
             )
 
+        logger.info(f"Found EAS feature: {eas_feature}")
+
         if not eas_feature:
             return None
 
         endpoint = eas_feature.get("url") or eas_feature.get("graphql")
+        logger.info(f"Found endpoint: {endpoint}")
         return cast(Optional[str], endpoint)
+
+    def _create_graphql_client(self, endpoint: str) -> Client:
+        """Create a GraphQL client for the given endpoint.
+
+        Args:
+            endpoint: GraphQL endpoint URL
+
+        Returns:
+            Configured GraphQL client
+        """
+        transport = AIOHTTPTransport(url=endpoint)
+        client = Client(
+            transport=transport,
+            fetch_schema_from_transport=True,
+        )
+        return client

@@ -197,7 +197,7 @@ DO NOT move on to the next task until you have committed the current one!
   - • Ensure proper conversion of database rows to GeoJSON features
   - • Fix type handling for feature IDs to support integer IDs
 
-- [ ] **Task 6.2.1: Implement Python SchemaEncoder for EAS Data Decoding**
+- [x] **Task 6.2.1: Implement Python SchemaEncoder for EAS Data Decoding**
   - • Research and analyze the EAS SDK's SchemaEncoder implementation
   - • Create a Python implementation of the SchemaEncoder in `app/services/schema_encoder.py`
   - • Add functionality to fetch schema definitions from EAS GraphQL endpoints
@@ -207,7 +207,18 @@ DO NOT move on to the next task until you have committed the current one!
   - • Add comprehensive tests for the SchemaEncoder implementation
   - • Update documentation with details about the EAS data format and decoding process
 
-- [ ] **Task 6.2.2: Refine Location Proof ETL Process**
+- [ ] **Task 6.2.2: Update Database Schema for Chain Model**
+  - • Review current schema and identify all places where chain_id is used as primary key
+  - • Update Chain model to use id as primary key and chain_id as unique field
+  - • Modify migration file to reflect new schema changes
+  - • Update all foreign key references in LocationProof and SyncState models
+  - • Adjust EASIntegrationService to use correct chain identifiers
+  - • Update chain seeding scripts to handle new schema
+  - • Add database migration test to verify schema changes
+  - • Document schema changes and update relevant documentation
+  - • Test all chain-related functionality end-to-end
+
+- [ ] **Task 6.2.3: Refine Location Proof ETL Process**
   - • Improve memo field extraction and processing from EAS attestations
   - • Add support for media type and media data extraction and storage
   - • Implement recipe type and recipe payload processing
