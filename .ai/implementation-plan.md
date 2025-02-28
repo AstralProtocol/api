@@ -218,17 +218,23 @@ DO NOT move on to the next task until you have committed the current one!
   - • Document schema changes and update relevant documentation
   - • Test all chain-related functionality end-to-end
 
-- [ ] **Task 6.2.3: Refine Location Proof ETL Process**
-  - • Fix SyncState table creation and schema
-  - • Ensure proper foreign key relationships between LocationProof and Chain tables
-  - • Implement proper error handling for database constraints
-  - • Store decoded location proofs with correct chain references
-  - • Add validation for location proof data integrity
-  - • Enhance error handling and logging during ETL process
-  - • Create a mechanism to handle updates to existing location proofs
-  - • Add comprehensive logging for debugging and monitoring
-  - • Test end-to-end location proof creation process
+- [ ] **Task 6.2.3: SyncState Implementation and Integration**
+  - • Fix SyncState table creation and schema if missing from migrations
+  - • Ensure proper foreign key relationships with Chain table
+  - • Implement robust error handling for SyncState operations
+  - • Test SyncState functionality in isolation and integration with EAS service
+
+- [x] **Task 6.2.4: LocationProof ETL Validation**
+  - • Verify proper decoding of attestation data
+  - • Ensure correct chain references in LocationProof records
+  - • Implement validation for LocationProof data integrity
+  - • Test end-to-end attestation to LocationProof pipeline
+
+- [ ] **Task 6.2.5: ETL Process Finalization**
+  - • Add comprehensive logging throughout the ETL process
+  - • Implement metrics for monitoring
   - • Document the ETL process and data flow
+  - • Final integration testing
 
 - [ ] **Task 6.3: User Account Seeding**
   - • Create a script to generate test user accounts with different roles and permissions

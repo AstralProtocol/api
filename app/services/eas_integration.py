@@ -261,19 +261,17 @@ class EASIntegrationService:
             query = gql(
                 """
                 query GetAttestations($where: AttestationWhereInput!) {
-                    attestations(where: $where, orderBy: {time: asc}, first: 100) {
+                    attestations(where: $where, orderBy: {time: asc}, take: 100) {
                         id
                         attester
                         recipient
-                        revoked
+                        refUID
+                        revocable
                         revocationTime
                         expirationTime
                         time
                         data
                         schemaId
-                        refUID
-                        txid
-                        blockNumber
                     }
                 }
                 """
@@ -329,6 +327,14 @@ class EASIntegrationService:
                 if not parsed_data:
                     logger.warning(
                         f"Failed to parse attestation data for {attestation['id']}"
+                    )
+                    continue
+
+                # Validate location proof data integrity
+                if not self._validate_location_proof_data(parsed_data):
+                    logger.warning(
+                        f"Invalid location proof data for "
+                        f"attestation {attestation['id']}"
                     )
                     continue
 
@@ -391,7 +397,48 @@ class EASIntegrationService:
             # Validate the decoded data
             SchemaEncoder.validate_decoded_data(decoded_data)
 
-            return decoded_data
+            # Map the decoded data to the LocationProof model fields
+            result = {
+                # Map schema fields to model fields
+                "event_timestamp": decoded_data["eventTimestamp"],
+                "srs": decoded_data["srs"],
+                "spatial_type": decoded_data["locationType"],
+                "location_wkt": decoded_data["location"],
+                "recipe_type": (
+                    decoded_data["recipeType"][0] if decoded_data["recipeType"] else ""
+                ),
+                "recipe_payload": {
+                    "data": (
+                        decoded_data["recipePayload"][0].hex()
+                        if decoded_data["recipePayload"]
+                        else ""
+                    )
+                },
+                "media_type": (
+                    decoded_data["mediaType"][0] if decoded_data["mediaType"] else ""
+                ),
+                "media_data": (
+                    decoded_data["mediaData"][0] if decoded_data["mediaData"] else ""
+                ),
+                "memo": decoded_data["memo"],
+                # Add attestation metadata
+                "schema_uid": attestation.get("schemaId", ""),
+                "attestation_uid": attestation.get("id", ""),
+                "status": "onchain",
+                "revocable": attestation.get("revocable", True),
+                "revocation_time": attestation.get("revocationTime", None),
+                "expiration_time": attestation.get("expirationTime", None),
+                "ref_uid": attestation.get("refUID", None),
+                "block_number": (
+                    int(attestation.get("blockNumber", 0))
+                    if attestation.get("blockNumber")
+                    else None
+                ),
+                "transaction_hash": attestation.get("txid", None),
+                "extra": {},
+            }
+
+            return result
 
         except Exception as e:
             logger.error(f"Error parsing attestation data: {e}")
@@ -501,3 +548,75 @@ class EASIntegrationService:
             fetch_schema_from_transport=True,
         )
         return client
+
+    def _validate_location_proof_data(self, parsed_data: Dict[str, Any]) -> bool:
+        """Validate location proof data integrity before saving to the database.
+
+        Args:
+            parsed_data: The parsed attestation data
+
+        Returns:
+            True if the data is valid, False otherwise
+        """
+        try:
+            # Check required fields
+            required_fields = [
+                "event_timestamp",
+                "srs",
+                "spatial_type",
+                "location_wkt",
+                "recipe_type",
+                "recipe_payload",
+                "media_type",
+                "media_data",
+            ]
+
+            for field in required_fields:
+                if field not in parsed_data:
+                    logger.error(f"Missing required field: {field}")
+                    return False
+
+            # Validate event_timestamp
+            if not isinstance(parsed_data["event_timestamp"], int):
+                logger.error("event_timestamp must be an integer")
+                return False
+
+            # Validate spatial data
+            if not isinstance(parsed_data["srs"], str) or not parsed_data["srs"]:
+                logger.error("Invalid SRS value")
+                return False
+
+            if (
+                not isinstance(parsed_data["spatial_type"], str)
+                or not parsed_data["spatial_type"]
+            ):
+                logger.error("Invalid spatial_type value")
+                return False
+
+            if (
+                not isinstance(parsed_data["location_wkt"], str)
+                or not parsed_data["location_wkt"]
+            ):
+                logger.error("Invalid location_wkt value")
+                return False
+
+            # Validate string fields
+            string_fields = ["recipe_type", "media_type", "media_data"]
+            for field in string_fields:
+                if not isinstance(parsed_data[field], str):
+                    logger.error(f"{field} must be a string")
+                    return False
+
+            # Validate recipe_payload
+            if not isinstance(parsed_data["recipe_payload"], dict):
+                logger.error("recipe_payload must be a dictionary")
+                return False
+
+            # Additional validation for specific location types could be added here
+            # For example, validating WKT format for different geometry types
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Error validating location proof data: {e}")
+            return False
