@@ -7,6 +7,9 @@ set -e
 # Print commands
 set -x
 
+# Set Python path
+export PYTHONPATH=/app:$PYTHONPATH
+
 # Wait for the database to be ready
 echo "Waiting for database to be ready..."
 python -c "
